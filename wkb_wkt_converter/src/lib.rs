@@ -148,11 +148,13 @@ fn plain_wkt_from(trimmed: &str) -> Result<String> {
 }
 
 fn encode_hex(bytes: &[u8]) -> String {
-    bytes.iter().fold(String::with_capacity(bytes.len() * 2), |mut s, b| {
-        use std::fmt::Write as _;
-        write!(s, "{b:02X}").unwrap();
-        s
-    })
+    bytes
+        .iter()
+        .fold(String::with_capacity(bytes.len() * 2), |mut s, b| {
+            use std::fmt::Write as _;
+            write!(s, "{b:02X}").unwrap();
+            s
+        })
 }
 
 fn is_hex_str(s: &str) -> bool {

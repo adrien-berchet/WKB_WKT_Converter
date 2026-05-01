@@ -1,7 +1,6 @@
 /// Tests for the generic text_to_wkb / text_to_wkt / text_to_hex_wkb helpers.
 use wkb_wkt_converter::{
-    text_to_hex_wkb, text_to_wkb, text_to_wkt, wkb_to_wkt, wkt_to_hex_wkb, wkt_to_wkb,
-    SridMode,
+    text_to_hex_wkb, text_to_wkb, text_to_wkt, wkb_to_wkt, wkt_to_hex_wkb, wkt_to_wkb, SridMode,
 };
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -170,10 +169,7 @@ fn wkt_strip_removes_srid_from_ewkt() {
 #[test]
 fn wkt_strip_removes_srid_from_hex_ewkb() {
     let h = hex("SRID=4326;POINT (1 2)");
-    assert_eq!(
-        text_to_wkt(&h, SridMode::Strip).unwrap(),
-        "POINT (1 2)"
-    );
+    assert_eq!(text_to_wkt(&h, SridMode::Strip).unwrap(), "POINT (1 2)");
 }
 
 // ── text_to_wkt: SridMode::Set ───────────────────────────────────────────────
@@ -214,7 +210,10 @@ fn hex_wkb_from_wkt_is_uppercase() {
 #[test]
 fn hex_wkb_from_wkt_roundtrip() {
     let h = text_to_hex_wkb("POINT (1 2)", SridMode::Auto).unwrap();
-    assert_eq!(wkb_to_wkt(&hex::decode(&h).unwrap()).unwrap(), "POINT (1 2)");
+    assert_eq!(
+        wkb_to_wkt(&hex::decode(&h).unwrap()).unwrap(),
+        "POINT (1 2)"
+    );
 }
 
 #[test]
