@@ -49,6 +49,41 @@ pub fn hex_wkb_to_wkt(hex: &str) -> Result<String> {
     wkb_to_wkt(&bytes)
 }
 
+/// Converts any WKT/EWKT string or hex-encoded WKB/EWKB string to EWKB bytes.
+///
+/// The input format is detected automatically: a string composed entirely of
+/// hexadecimal characters is treated as hex WKB; anything else is treated as
+/// WKT.  SRIDs are preserved in the output.
+pub fn text_to_wkb(text: &str) -> Result<Vec<u8>> {
+    let trimmed = text.trim();
+    if is_hex_str(trimmed) {
+        decode_hex(trimmed)
+    } else {
+        wkt_to_wkb(trimmed)
+    }
+}
+
+/// Converts any WKT/EWKT string or hex-encoded WKB/EWKB string to a WKT/EWKT
+/// string.
+///
+/// The input format is detected automatically: a string composed entirely of
+/// hexadecimal characters is treated as hex WKB; anything else is treated as
+/// WKT (and is normalised by a round-trip through WKB).  SRIDs are preserved
+/// in the output as a `SRID=N;` prefix.
+pub fn text_to_wkt(text: &str) -> Result<String> {
+    let trimmed = text.trim();
+    if is_hex_str(trimmed) {
+        hex_wkb_to_wkt(trimmed)
+    } else {
+        let wkb = wkt_to_wkb(trimmed)?;
+        wkb_to_wkt(&wkb)
+    }
+}
+
+fn is_hex_str(s: &str) -> bool {
+    !s.is_empty() && s.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
 fn decode_hex(hex: &str) -> Result<Vec<u8>> {
     if !hex.len().is_multiple_of(2) {
         return Err(Error::InvalidWkb("hex string has odd length".into()));

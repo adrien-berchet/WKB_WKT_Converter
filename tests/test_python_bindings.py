@@ -140,3 +140,92 @@ def test_hex_wkb_to_wkt_roundtrip():
 def test_hex_wkb_to_wkt_invalid_raises_value_error():
     with pytest.raises(ValueError, match="invalid WKB"):
         m.hex_wkb_to_wkt("ZZ")
+
+
+# ── text_to_wkb ───────────────────────────────────────────────────────────────
+
+def test_text_to_wkb_from_wkt_returns_bytes():
+    result = m.text_to_wkb("POINT (1 2)")
+    assert isinstance(result, bytes)
+    assert result == m.wkt_to_wkb("POINT (1 2)")
+
+
+def test_text_to_wkb_from_hex_wkb_returns_bytes():
+    hex_wkb = m.wkt_to_hex_wkb("POINT (1 2)")
+    result = m.text_to_wkb(hex_wkb)
+    assert isinstance(result, bytes)
+    assert result == m.wkt_to_wkb("POINT (1 2)")
+
+
+def test_text_to_wkb_preserves_srid_from_wkt():
+    result = m.text_to_wkb("SRID=4326;POINT (1 2)")
+    assert m.wkb_to_wkt(result) == "SRID=4326;POINT (1 2)"
+
+
+def test_text_to_wkb_preserves_srid_from_hex_wkb():
+    hex_wkb = m.wkt_to_hex_wkb("SRID=4326;POINT (1 2)")
+    result = m.text_to_wkb(hex_wkb)
+    assert m.wkb_to_wkt(result) == "SRID=4326;POINT (1 2)"
+
+
+def test_text_to_wkb_invalid_raises_value_error():
+    with pytest.raises(ValueError):
+        m.text_to_wkb("NOT_A_GEOMETRY (1 2)")
+
+
+# ── text_to_wkt ───────────────────────────────────────────────────────────────
+
+def test_text_to_wkt_from_wkt_returns_str():
+    result = m.text_to_wkt("POINT (1 2)")
+    assert isinstance(result, str)
+    assert result == "POINT (1 2)"
+
+
+def test_text_to_wkt_from_hex_wkb_returns_str():
+    hex_wkb = m.wkt_to_hex_wkb("POINT (1 2)")
+    result = m.text_to_wkt(hex_wkb)
+    assert isinstance(result, str)
+    assert result == "POINT (1 2)"
+
+
+def test_text_to_wkt_normalises_wkt():
+    # WKT with non-canonical whitespace/casing is normalised
+    assert m.text_to_wkt("point(1 2)") == "POINT (1 2)"
+
+
+def test_text_to_wkt_preserves_srid_from_wkt():
+    assert m.text_to_wkt("SRID=4326;POINT (1 2)") == "SRID=4326;POINT (1 2)"
+
+
+def test_text_to_wkt_preserves_srid_from_hex_wkb():
+    hex_wkb = m.wkt_to_hex_wkb("SRID=4326;POINT (1 2)")
+    assert m.text_to_wkt(hex_wkb) == "SRID=4326;POINT (1 2)"
+
+
+@pytest.mark.parametrize("wkt", [
+    "POINT (1 2)",
+    "POINT Z (1 2 3)",
+    "LINESTRING (0 0, 1 1)",
+    "POLYGON ((0 0, 1 0, 1 1, 0 1, 0 0))",
+    "MULTIPOLYGON (((0 0, 1 0, 1 1, 0 0)), ((2 2, 3 2, 3 3, 2 2)))",
+    "GEOMETRYCOLLECTION (POINT (1 2), LINESTRING (0 0, 1 1))",
+])
+def test_text_to_wkt_roundtrip_from_wkt(wkt):
+    assert m.text_to_wkt(wkt) == wkt
+
+
+@pytest.mark.parametrize("wkt", [
+    "POINT (1 2)",
+    "POINT Z (1 2 3)",
+    "LINESTRING (0 0, 1 1)",
+    "POLYGON ((0 0, 1 0, 1 1, 0 1, 0 0))",
+    "SRID=4326;POINT (1 2)",
+])
+def test_text_to_wkt_roundtrip_from_hex(wkt):
+    hex_wkb = m.wkt_to_hex_wkb(wkt)
+    assert m.text_to_wkt(hex_wkb) == wkt
+
+
+def test_text_to_wkt_invalid_raises_value_error():
+    with pytest.raises(ValueError):
+        m.text_to_wkt("NOT_A_GEOMETRY (1 2)")

@@ -49,6 +49,21 @@ fn hex_wkb_to_wkt(hex: &str) -> PyResult<String> {
     core::hex_wkb_to_wkt(hex).map_err(to_py_err)
 }
 
+/// Converts a WKT/EWKT string or a hex-encoded WKB/EWKB string to EWKB bytes.
+/// The input format is detected automatically. SRIDs are preserved in the output.
+#[pyfunction]
+fn text_to_wkb(text: &str) -> PyResult<Vec<u8>> {
+    core::text_to_wkb(text).map_err(to_py_err)
+}
+
+/// Converts a WKT/EWKT string or a hex-encoded WKB/EWKB string to a WKT/EWKT string.
+/// The input format is detected automatically. WKT input is normalised. SRIDs are
+/// preserved in the output as a `SRID=N;` prefix.
+#[pyfunction]
+fn text_to_wkt(text: &str) -> PyResult<String> {
+    core::text_to_wkt(text).map_err(to_py_err)
+}
+
 #[pymodule(name = "wkb_wkt_converter")]
 fn wkb_wkt_converter_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(wkb_to_wkt, m)?)?;
@@ -57,5 +72,7 @@ fn wkb_wkt_converter_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(wkt_to_wkb_split_srid, m)?)?;
     m.add_function(wrap_pyfunction!(wkt_to_hex_wkb, m)?)?;
     m.add_function(wrap_pyfunction!(hex_wkb_to_wkt, m)?)?;
+    m.add_function(wrap_pyfunction!(text_to_wkb, m)?)?;
+    m.add_function(wrap_pyfunction!(text_to_wkt, m)?)?;
     Ok(())
 }
