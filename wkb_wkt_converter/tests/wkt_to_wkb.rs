@@ -253,6 +253,17 @@ fn extra_whitespace_is_accepted() {
 }
 
 #[test]
+fn comma_spacing_variants_are_accepted() {
+    // Spacing around commas between coordinate pairs is irrelevant
+    assert_eq!(roundtrip("LINESTRING(1 2,3 4)"), "LINESTRING (1 2, 3 4)");
+    assert_eq!(roundtrip("LINESTRING(1 2 , 3 4)"), "LINESTRING (1 2, 3 4)");
+    assert_eq!(
+        roundtrip("POLYGON((0 0,1 0,1 1,0 0))"),
+        "POLYGON ((0 0, 1 0, 1 1, 0 0))"
+    );
+}
+
+#[test]
 fn tab_and_newline_whitespace() {
     assert_eq!(roundtrip("POINT\t(1\t2)"), "POINT (1 2)");
     assert_eq!(
