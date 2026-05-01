@@ -58,10 +58,34 @@ pub fn wkt_to_hex_wkb(wkt: &str) -> Result<String>
 pub fn hex_wkb_to_wkt(hex: &str) -> Result<String>
 ```
 
+#### Generic converters
+
+These functions accept **either** a WKT/EWKT string **or** a hex-encoded WKB/EWKB
+string and detect the format automatically (a string composed entirely of hex
+characters is treated as hex WKB; anything else as WKT).
+
+```rust
+pub fn text_to_wkb(text: &str, srid: SridMode) -> Result<Vec<u8>>
+pub fn text_to_wkt(text: &str, srid: SridMode) -> Result<String>
+pub fn text_to_hex_wkb(text: &str, srid: SridMode) -> Result<String>
+```
+
+`SridMode` controls SRID handling in the output:
+
+| Variant | Behaviour |
+|---|---|
+| `SridMode::Auto` | Mirror the input — SRID kept if present, absent if not |
+| `SridMode::Strip` | Always strip the SRID from the output |
+| `SridMode::Set(n)` | Always embed SRID `n`, overriding whatever the input contains |
+
+`text_to_wkt` also **normalises** WKT input (casing, whitespace) via a
+round-trip through WKB.
+
 ### Example
 
 ```rust
 use wkb_wkt_converter::{wkt_to_wkb, wkb_to_wkt, wkt_to_wkb_split_srid};
+use wkb_wkt_converter::{text_to_wkt, text_to_hex_wkb, SridMode};
 
 // Basic round-trip
 let wkb = wkt_to_wkb("POINT (1 2)")?;
@@ -82,6 +106,19 @@ assert_eq!(srid, Some(4326));
 let wkb = wkt_to_wkb("MULTIPOLYGON ZM (((0 0 0 1, 1 0 0 1, 1 1 0 1, 0 0 0 1)))")?;
 let wkt = wkb_to_wkt(&wkb)?;
 assert_eq!(wkt, "MULTIPOLYGON ZM (((0 0 0 1, 1 0 0 1, 1 1 0 1, 0 0 0 1)))");
+
+// Generic converters: input format (WKT or hex WKB) detected automatically
+// Normalise WKT (casing, whitespace) — SridMode::Auto mirrors the input
+let wkt = text_to_wkt("point(1 2)", SridMode::Auto)?;
+assert_eq!(wkt, "POINT (1 2)");
+
+// Add or override an SRID regardless of what the input contains
+let hex = text_to_hex_wkb("POINT (1 2)", SridMode::Set(4326))?;
+// hex is an EWKB string encoding SRID=4326;POINT (1 2)
+
+// Strip the SRID even when the input is already EWKT
+let wkt = text_to_wkt("SRID=4326;POINT (1 2)", SridMode::Strip)?;
+assert_eq!(wkt, "POINT (1 2)");
 ```
 
 ### Error handling
@@ -120,6 +157,10 @@ from wkb_wkt_converter import (
     wkt_to_wkb_split_srid,
     wkt_to_hex_wkb,
     hex_wkb_to_wkt,
+    # generic converters
+    text_to_wkb,
+    text_to_wkt,
+    text_to_hex_wkb,
 )
 ```
 
@@ -134,10 +175,33 @@ from wkb_wkt_converter import (
 
 All functions raise `ValueError` on invalid input.
 
+#### Generic converters
+
+These three functions accept **either** a WKT/EWKT string **or** a hex-encoded
+WKB/EWKB string and detect the format automatically.
+
+| Function | Output |
+|---|---|
+| `text_to_wkb(text, srid=None)` | `bytes` |
+| `text_to_wkt(text, srid=None)` | `str` |
+| `text_to_hex_wkb(text, srid=None)` | `str` |
+
+The `srid` keyword argument controls SRID handling in the output:
+
+| Value | Behaviour |
+|---|---|
+| `None` *(default)* | Mirror the input — SRID kept if present, absent if not |
+| `False` | Always strip the SRID from the output |
+| `int` | Always embed this SRID, overriding whatever the input contains |
+
+`text_to_wkt` also **normalises** WKT input (casing, whitespace) via a
+round-trip through WKB.
+
 ### Example
 
 ```python
 from wkb_wkt_converter import wkt_to_wkb, wkb_to_wkt, wkt_to_hex_wkb
+from wkb_wkt_converter import text_to_wkt, text_to_hex_wkb
 
 wkb = wkt_to_wkb("POINT (1 2)")
 wkt = wkb_to_wkt(wkb)
@@ -151,6 +215,20 @@ assert wkt == "SRID=4326;POLYGON ((0 0, 1 0, 1 1, 0 0))"
 # Hex WKB (common PostGIS text format)
 hex_wkb = wkt_to_hex_wkb("POINT (1 2)")
 wkt = hex_wkb_to_wkt(hex_wkb)
+assert wkt == "POINT (1 2)"
+
+# Generic converters: input format detected automatically
+wkt = text_to_wkt("point(1 2)")                      # normalise WKT
+assert wkt == "POINT (1 2)"
+
+wkt = text_to_wkt(hex_wkb)                           # hex WKB → WKT
+assert wkt == "POINT (1 2)"
+
+hex_out = text_to_hex_wkb("POINT (1 2)", srid=4326)  # add SRID
+wkt = text_to_wkt(hex_out)
+assert wkt == "SRID=4326;POINT (1 2)"
+
+wkt = text_to_wkt("SRID=4326;POINT (1 2)", srid=False)  # strip SRID
 assert wkt == "POINT (1 2)"
 ```
 
@@ -169,6 +247,7 @@ wkb_wkt_converter/          # core Rust library (zero runtime dependencies)
   tests/
     wkb_to_wkt.rs
     wkt_to_wkb.rs
+    text_to.rs
 
 wkb_wkt_converter_py/       # Python bindings (PyO3 / maturin)
   src/lib.rs

@@ -339,3 +339,55 @@ def test_text_to_wkt_srid_int_overrides_srid_in_hex_ewkb():
 def test_text_to_wkt_srid_true_raises_value_error():
     with pytest.raises(ValueError, match="srid=True is not valid"):
         m.text_to_wkt("POINT (1 2)", srid=True)
+
+
+# ── text_to_hex_wkb ───────────────────────────────────────────────────────────
+
+def test_text_to_hex_wkb_from_wkt_returns_uppercase_str():
+    result = m.text_to_hex_wkb("POINT (1 2)")
+    assert isinstance(result, str)
+    assert result == result.upper()
+
+
+def test_text_to_hex_wkb_from_wkt_matches_wkt_to_hex_wkb():
+    assert m.text_to_hex_wkb("POINT (1 2)") == m.wkt_to_hex_wkb("POINT (1 2)")
+
+
+def test_text_to_hex_wkb_from_hex_wkb_is_identity():
+    original = m.wkt_to_hex_wkb("LINESTRING (0 0, 1 1)")
+    assert m.text_to_hex_wkb(original) == original
+
+
+def test_text_to_hex_wkb_srid_none_is_default():
+    ewkt = "SRID=4326;POINT (1 2)"
+    assert m.text_to_hex_wkb(ewkt) == m.text_to_hex_wkb(ewkt, srid=None)
+
+
+def test_text_to_hex_wkb_srid_none_preserves_srid():
+    result = m.text_to_hex_wkb("SRID=4326;POINT (1 2)", srid=None)
+    assert m.hex_wkb_to_wkt(result) == "SRID=4326;POINT (1 2)"
+
+
+def test_text_to_hex_wkb_srid_false_strips_srid():
+    result = m.text_to_hex_wkb("SRID=4326;POINT (1 2)", srid=False)
+    assert m.hex_wkb_to_wkt(result) == "POINT (1 2)"
+
+
+def test_text_to_hex_wkb_srid_int_adds_srid_to_plain_wkt():
+    result = m.text_to_hex_wkb("POINT (1 2)", srid=4326)
+    assert m.hex_wkb_to_wkt(result) == "SRID=4326;POINT (1 2)"
+
+
+def test_text_to_hex_wkb_srid_int_overrides_srid():
+    result = m.text_to_hex_wkb("SRID=4326;POINT (1 2)", srid=3857)
+    assert m.hex_wkb_to_wkt(result) == "SRID=3857;POINT (1 2)"
+
+
+def test_text_to_hex_wkb_srid_true_raises_value_error():
+    with pytest.raises(ValueError, match="srid=True is not valid"):
+        m.text_to_hex_wkb("POINT (1 2)", srid=True)
+
+
+def test_text_to_hex_wkb_invalid_raises_value_error():
+    with pytest.raises(ValueError):
+        m.text_to_hex_wkb("NOT_A_GEOMETRY (1 2)")

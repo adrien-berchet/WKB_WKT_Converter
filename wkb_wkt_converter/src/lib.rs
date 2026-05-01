@@ -33,14 +33,7 @@ pub fn wkt_to_wkb_split_srid(wkt: &str) -> Result<(Vec<u8>, Option<u32>)> {
 
 /// Converts a WKT/EWKT string to an uppercase hex-encoded EWKB string.
 pub fn wkt_to_hex_wkb(wkt: &str) -> Result<String> {
-    let bytes = wkt_to_wkb(wkt)?;
-    Ok(bytes
-        .iter()
-        .fold(String::with_capacity(bytes.len() * 2), |mut s, b| {
-            use std::fmt::Write as _;
-            write!(s, "{b:02X}").unwrap();
-            s
-        }))
+    wkt_to_wkb(wkt).map(|b| encode_hex(&b))
 }
 
 /// Converts a hex-encoded WKB/EWKB string to a WKT/EWKT string.
@@ -133,6 +126,16 @@ pub fn text_to_wkt(text: &str, srid: SridMode) -> Result<String> {
     }
 }
 
+/// Converts any WKT/EWKT string or hex-encoded WKB/EWKB string to an uppercase
+/// hex-encoded EWKB string.
+///
+/// The input format is detected automatically.
+///
+/// `srid` controls SRID handling in the output — see [`SridMode`].
+pub fn text_to_hex_wkb(text: &str, srid: SridMode) -> Result<String> {
+    text_to_wkb(text, srid).map(|b| encode_hex(&b))
+}
+
 /// Returns a normalised, SRID-free WKT string from either hex WKB or WKT input.
 fn plain_wkt_from(trimmed: &str) -> Result<String> {
     if is_hex_str(trimmed) {
@@ -142,6 +145,14 @@ fn plain_wkt_from(trimmed: &str) -> Result<String> {
         let (wkb, _) = wkt_to_wkb_split_srid(trimmed)?;
         wkb_to_wkt(&wkb)
     }
+}
+
+fn encode_hex(bytes: &[u8]) -> String {
+    bytes.iter().fold(String::with_capacity(bytes.len() * 2), |mut s, b| {
+        use std::fmt::Write as _;
+        write!(s, "{b:02X}").unwrap();
+        s
+    })
 }
 
 fn is_hex_str(s: &str) -> bool {
