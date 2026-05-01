@@ -49,34 +49,60 @@ pub fn hex_wkb_to_wkt(hex: &str) -> Result<String> {
     wkb_to_wkt(&bytes)
 }
 
-/// Converts any WKT/EWKT string or hex-encoded WKB/EWKB string to EWKB bytes.
+/// Converts any WKT/EWKT string or hex-encoded WKB/EWKB string to WKB bytes.
 ///
 /// The input format is detected automatically: a string composed entirely of
 /// hexadecimal characters is treated as hex WKB; anything else is treated as
-/// WKT.  SRIDs are preserved in the output.
-pub fn text_to_wkb(text: &str) -> Result<Vec<u8>> {
+/// WKT.
+///
+/// When `extended` is `true` (EWKB), any SRID present in the input is embedded
+/// in the output bytes.  When `false` (plain WKB), the SRID is discarded.
+pub fn text_to_wkb(text: &str, extended: bool) -> Result<Vec<u8>> {
     let trimmed = text.trim();
-    if is_hex_str(trimmed) {
-        decode_hex(trimmed)
+    if extended {
+        if is_hex_str(trimmed) {
+            decode_hex(trimmed)
+        } else {
+            wkt_to_wkb(trimmed)
+        }
     } else {
-        wkt_to_wkb(trimmed)
+        if is_hex_str(trimmed) {
+            let bytes = decode_hex(trimmed)?;
+            let (wkt, _) = wkb_to_wkt_split_srid(&bytes)?;
+            wkt_to_wkb(&wkt)
+        } else {
+            wkt_to_wkb_split_srid(trimmed).map(|(b, _)| b)
+        }
     }
 }
 
-/// Converts any WKT/EWKT string or hex-encoded WKB/EWKB string to a WKT/EWKT
+/// Converts any WKT/EWKT string or hex-encoded WKB/EWKB string to a WKT
 /// string.
 ///
 /// The input format is detected automatically: a string composed entirely of
 /// hexadecimal characters is treated as hex WKB; anything else is treated as
-/// WKT (and is normalised by a round-trip through WKB).  SRIDs are preserved
-/// in the output as a `SRID=N;` prefix.
-pub fn text_to_wkt(text: &str) -> Result<String> {
+/// WKT (and is normalised by a round-trip through WKB).
+///
+/// When `extended` is `true` (EWKT), any SRID present in the input is included
+/// in the output as a `SRID=N;` prefix.  When `false` (plain WKT), it is
+/// discarded.
+pub fn text_to_wkt(text: &str, extended: bool) -> Result<String> {
     let trimmed = text.trim();
-    if is_hex_str(trimmed) {
-        hex_wkb_to_wkt(trimmed)
+    if extended {
+        if is_hex_str(trimmed) {
+            hex_wkb_to_wkt(trimmed)
+        } else {
+            let wkb = wkt_to_wkb(trimmed)?;
+            wkb_to_wkt(&wkb)
+        }
     } else {
-        let wkb = wkt_to_wkb(trimmed)?;
-        wkb_to_wkt(&wkb)
+        if is_hex_str(trimmed) {
+            let bytes = decode_hex(trimmed)?;
+            wkb_to_wkt_split_srid(&bytes).map(|(s, _)| s)
+        } else {
+            let (wkb, _) = wkt_to_wkb_split_srid(trimmed)?;
+            wkb_to_wkt(&wkb)
+        }
     }
 }
 

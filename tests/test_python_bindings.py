@@ -173,6 +173,28 @@ def test_text_to_wkb_invalid_raises_value_error():
         m.text_to_wkb("NOT_A_GEOMETRY (1 2)")
 
 
+def test_text_to_wkb_extended_true_default():
+    # extended=True is the default and must match the explicit call
+    assert m.text_to_wkb("SRID=4326;POINT (1 2)") == m.text_to_wkb("SRID=4326;POINT (1 2)", extended=True)
+
+
+def test_text_to_wkb_extended_false_strips_srid_from_wkt():
+    result = m.text_to_wkb("SRID=4326;POINT (1 2)", extended=False)
+    assert m.wkb_to_wkt(result) == "POINT (1 2)"
+
+
+def test_text_to_wkb_extended_false_strips_srid_from_hex_wkb():
+    hex_wkb = m.wkt_to_hex_wkb("SRID=4326;POINT (1 2)")
+    result = m.text_to_wkb(hex_wkb, extended=False)
+    assert m.wkb_to_wkt(result) == "POINT (1 2)"
+
+
+def test_text_to_wkb_extended_false_no_srid_unchanged():
+    # No SRID in input → extended flag has no effect on geometry bytes
+    plain = m.text_to_wkb("POINT (1 2)", extended=False)
+    assert m.wkb_to_wkt(plain) == "POINT (1 2)"
+
+
 # ── text_to_wkt ───────────────────────────────────────────────────────────────
 
 def test_text_to_wkt_from_wkt_returns_str():
@@ -229,3 +251,26 @@ def test_text_to_wkt_roundtrip_from_hex(wkt):
 def test_text_to_wkt_invalid_raises_value_error():
     with pytest.raises(ValueError):
         m.text_to_wkt("NOT_A_GEOMETRY (1 2)")
+
+
+def test_text_to_wkt_extended_true_default():
+    ewkt = "SRID=4326;POINT (1 2)"
+    assert m.text_to_wkt(ewkt) == m.text_to_wkt(ewkt, extended=True)
+
+
+def test_text_to_wkt_extended_false_strips_srid_from_wkt():
+    assert m.text_to_wkt("SRID=4326;POINT (1 2)", extended=False) == "POINT (1 2)"
+
+
+def test_text_to_wkt_extended_false_strips_srid_from_hex_wkb():
+    hex_wkb = m.wkt_to_hex_wkb("SRID=4326;POINT (1 2)")
+    assert m.text_to_wkt(hex_wkb, extended=False) == "POINT (1 2)"
+
+
+def test_text_to_wkt_extended_false_normalises_wkt():
+    # WKT normalisation still works when extended=False
+    assert m.text_to_wkt("point(1 2)", extended=False) == "POINT (1 2)"
+
+
+def test_text_to_wkt_extended_false_no_srid_unchanged():
+    assert m.text_to_wkt("POINT (1 2)", extended=False) == "POINT (1 2)"
