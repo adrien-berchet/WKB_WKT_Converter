@@ -3,10 +3,36 @@
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use pyo3::types::PyBool;
 use wkb_wkt_converter as core;
 
 fn to_py_err(e: core::Error) -> PyErr {
     PyValueError::new_err(e.to_string())
+}
+
+/// Maps the Python `srid` argument (`None`, `False`, or a positive integer) to
+/// a [`core::SridMode`].  `True` is rejected with a clear error message.
+fn parse_srid_arg(val: Option<Bound<'_, PyAny>>) -> PyResult<core::SridMode> {
+    match val {
+        None => Ok(core::SridMode::Auto),
+        Some(v) => {
+            if v.is_instance_of::<PyBool>() {
+                if v.extract::<bool>()? {
+                    Err(PyValueError::new_err(
+                        "srid=True is not valid; pass an integer SRID, False, or None",
+                    ))
+                } else {
+                    Ok(core::SridMode::Strip)
+                }
+            } else if let Ok(n) = v.extract::<u32>() {
+                Ok(core::SridMode::Set(n))
+            } else {
+                Err(PyValueError::new_err(
+                    "srid must be None, False, or a non-negative integer",
+                ))
+            }
+        }
+    }
 }
 
 /// Converts WKB/EWKB bytes to a WKT/EWKT string.
@@ -52,27 +78,27 @@ fn hex_wkb_to_wkt(hex: &str) -> PyResult<String> {
 /// Converts a WKT/EWKT string or a hex-encoded WKB/EWKB string to WKB bytes.
 /// The input format is detected automatically.
 ///
-/// *extended* controls SRID handling in the output:
+/// *srid* controls SRID handling in the output:
 /// - ``None`` (default): mirror the input — SRID is kept if present, absent if not.
-/// - ``True``: force EWKB — SRID is embedded when present in the input.
-/// - ``False``: force plain WKB — SRID is always stripped.
+/// - ``False``: always strip the SRID from the output.
+/// - integer: always embed this SRID, overriding whatever the input contains.
 #[pyfunction]
-#[pyo3(signature = (text, extended=None))]
-fn text_to_wkb(text: &str, extended: Option<bool>) -> PyResult<Vec<u8>> {
-    core::text_to_wkb(text, extended).map_err(to_py_err)
+#[pyo3(signature = (text, srid=None))]
+fn text_to_wkb(text: &str, srid: Option<Bound<'_, PyAny>>) -> PyResult<Vec<u8>> {
+    core::text_to_wkb(text, parse_srid_arg(srid)?).map_err(to_py_err)
 }
 
 /// Converts a WKT/EWKT string or a hex-encoded WKB/EWKB string to a WKT string.
 /// The input format is detected automatically; WKT input is normalised.
 ///
-/// *extended* controls SRID handling in the output:
-/// - ``None`` (default): mirror the input — ``SRID=N;`` prefix is kept if present, absent if not.
-/// - ``True``: force EWKT — ``SRID=N;`` prefix is included when present in the input.
-/// - ``False``: force plain WKT — ``SRID=N;`` prefix is always stripped.
+/// *srid* controls SRID handling in the output:
+/// - ``None`` (default): mirror the input — ``SRID=N;`` prefix kept if present, absent if not.
+/// - ``False``: always strip the ``SRID=N;`` prefix from the output.
+/// - integer: always prepend ``SRID=N;``, overriding whatever the input contains.
 #[pyfunction]
-#[pyo3(signature = (text, extended=None))]
-fn text_to_wkt(text: &str, extended: Option<bool>) -> PyResult<String> {
-    core::text_to_wkt(text, extended).map_err(to_py_err)
+#[pyo3(signature = (text, srid=None))]
+fn text_to_wkt(text: &str, srid: Option<Bound<'_, PyAny>>) -> PyResult<String> {
+    core::text_to_wkt(text, parse_srid_arg(srid)?).map_err(to_py_err)
 }
 
 #[pymodule(name = "wkb_wkt_converter")]

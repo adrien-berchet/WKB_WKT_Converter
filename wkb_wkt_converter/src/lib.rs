@@ -49,32 +49,48 @@ pub fn hex_wkb_to_wkt(hex: &str) -> Result<String> {
     wkb_to_wkt(&bytes)
 }
 
+/// Controls SRID handling in the output of [`text_to_wkb`] and [`text_to_wkt`].
+pub enum SridMode {
+    /// Mirror the input: SRID is kept if present, absent if not.
+    Auto,
+    /// Always strip any SRID from the output.
+    Strip,
+    /// Always embed this SRID in the output, overriding whatever the input contains.
+    Set(u32),
+}
+
 /// Converts any WKT/EWKT string or hex-encoded WKB/EWKB string to WKB bytes.
 ///
 /// The input format is detected automatically: a string composed entirely of
 /// hexadecimal characters is treated as hex WKB; anything else is treated as
 /// WKT.
 ///
-/// `extended` controls SRID handling in the output:
-/// - `None` (default): mirror the input — SRID is kept if present, absent if not.
-/// - `Some(true)`: force EWKB — SRID is embedded when present in the input.
-/// - `Some(false)`: force plain WKB — SRID is always stripped.
-pub fn text_to_wkb(text: &str, extended: Option<bool>) -> Result<Vec<u8>> {
+/// `srid` controls SRID handling in the output:
+/// - [`SridMode::Auto`] (default): mirror the input — SRID kept if present, absent if not.
+/// - [`SridMode::Strip`]: always strip the SRID from the output.
+/// - [`SridMode::Set(n)`]: always embed SRID `n`, overriding any SRID in the input.
+pub fn text_to_wkb(text: &str, srid: SridMode) -> Result<Vec<u8>> {
     let trimmed = text.trim();
-    if extended == Some(false) {
-        if is_hex_str(trimmed) {
-            let bytes = decode_hex(trimmed)?;
-            let (wkt, _) = wkb_to_wkt_split_srid(&bytes)?;
-            wkt_to_wkb(&wkt)
-        } else {
-            wkt_to_wkb_split_srid(trimmed).map(|(b, _)| b)
+    match srid {
+        SridMode::Auto => {
+            if is_hex_str(trimmed) {
+                decode_hex(trimmed)
+            } else {
+                wkt_to_wkb(trimmed)
+            }
         }
-    } else {
-        // None or Some(true): preserve the input's SRID state
-        if is_hex_str(trimmed) {
-            decode_hex(trimmed)
-        } else {
-            wkt_to_wkb(trimmed)
+        SridMode::Strip => {
+            if is_hex_str(trimmed) {
+                let bytes = decode_hex(trimmed)?;
+                let (wkt, _) = wkb_to_wkt_split_srid(&bytes)?;
+                wkt_to_wkb(&wkt)
+            } else {
+                wkt_to_wkb_split_srid(trimmed).map(|(b, _)| b)
+            }
+        }
+        SridMode::Set(srid_val) => {
+            let plain = plain_wkt_from(trimmed)?;
+            wkt_to_wkb(&format!("SRID={srid_val};{plain}"))
         }
     }
 }
@@ -86,28 +102,45 @@ pub fn text_to_wkb(text: &str, extended: Option<bool>) -> Result<Vec<u8>> {
 /// hexadecimal characters is treated as hex WKB; anything else is treated as
 /// WKT (and is normalised by a round-trip through WKB).
 ///
-/// `extended` controls SRID handling in the output:
-/// - `None` (default): mirror the input — `SRID=N;` prefix is kept if present, absent if not.
-/// - `Some(true)`: force EWKT — `SRID=N;` prefix is included when present in the input.
-/// - `Some(false)`: force plain WKT — `SRID=N;` prefix is always stripped.
-pub fn text_to_wkt(text: &str, extended: Option<bool>) -> Result<String> {
+/// `srid` controls SRID handling in the output:
+/// - [`SridMode::Auto`] (default): mirror the input — `SRID=N;` prefix kept if present.
+/// - [`SridMode::Strip`]: always strip the `SRID=N;` prefix from the output.
+/// - [`SridMode::Set(n)`]: always prepend `SRID=n;`, overriding any SRID in the input.
+pub fn text_to_wkt(text: &str, srid: SridMode) -> Result<String> {
     let trimmed = text.trim();
-    if extended == Some(false) {
-        if is_hex_str(trimmed) {
-            let bytes = decode_hex(trimmed)?;
-            wkb_to_wkt_split_srid(&bytes).map(|(s, _)| s)
-        } else {
-            let (wkb, _) = wkt_to_wkb_split_srid(trimmed)?;
-            wkb_to_wkt(&wkb)
+    match srid {
+        SridMode::Auto => {
+            if is_hex_str(trimmed) {
+                hex_wkb_to_wkt(trimmed)
+            } else {
+                let wkb = wkt_to_wkb(trimmed)?;
+                wkb_to_wkt(&wkb)
+            }
         }
+        SridMode::Strip => {
+            if is_hex_str(trimmed) {
+                let bytes = decode_hex(trimmed)?;
+                wkb_to_wkt_split_srid(&bytes).map(|(s, _)| s)
+            } else {
+                let (wkb, _) = wkt_to_wkb_split_srid(trimmed)?;
+                wkb_to_wkt(&wkb)
+            }
+        }
+        SridMode::Set(srid_val) => {
+            let plain = plain_wkt_from(trimmed)?;
+            Ok(format!("SRID={srid_val};{plain}"))
+        }
+    }
+}
+
+/// Returns a normalised, SRID-free WKT string from either hex WKB or WKT input.
+fn plain_wkt_from(trimmed: &str) -> Result<String> {
+    if is_hex_str(trimmed) {
+        let bytes = decode_hex(trimmed)?;
+        wkb_to_wkt_split_srid(&bytes).map(|(s, _)| s)
     } else {
-        // None or Some(true): preserve the input's SRID state
-        if is_hex_str(trimmed) {
-            hex_wkb_to_wkt(trimmed)
-        } else {
-            let wkb = wkt_to_wkb(trimmed)?;
-            wkb_to_wkt(&wkb)
-        }
+        let (wkb, _) = wkt_to_wkb_split_srid(trimmed)?;
+        wkb_to_wkt(&wkb)
     }
 }
 
