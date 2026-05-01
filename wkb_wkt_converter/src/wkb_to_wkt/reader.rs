@@ -204,8 +204,7 @@ impl<'a> WkbReader<'a> {
             let (geom_type, dim, _) = self.read_type()?;
             if geom_type != GeomType::Point {
                 return Err(Error::InvalidWkb(format!(
-                    "expected Point sub-geometry in MultiPoint, got type code {:?}",
-                    geom_type
+                    "expected Point sub-geometry in MultiPoint, got type code {geom_type:?}",
                 )));
             }
             let n = dim.coord_size();
@@ -240,8 +239,7 @@ impl<'a> WkbReader<'a> {
             let (geom_type, dim, _) = self.read_type()?;
             if geom_type != GeomType::LineString {
                 return Err(Error::InvalidWkb(format!(
-                    "expected LineString sub-geometry in MultiLineString, got type code {:?}",
-                    geom_type
+                    "expected LineString sub-geometry in MultiLineString, got type code {geom_type:?}",
                 )));
             }
             let num_pts = self.read_u32()? as usize;
@@ -272,8 +270,7 @@ impl<'a> WkbReader<'a> {
             let (geom_type, dim, _) = self.read_type()?;
             if geom_type != GeomType::Polygon {
                 return Err(Error::InvalidWkb(format!(
-                    "expected Polygon sub-geometry in MultiPolygon, got type code {:?}",
-                    geom_type
+                    "expected Polygon sub-geometry in MultiPolygon, got type code {geom_type:?}",
                 )));
             }
             let num_rings = self.read_u32()? as usize;
