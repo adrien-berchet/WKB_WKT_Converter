@@ -55,23 +55,26 @@ pub fn hex_wkb_to_wkt(hex: &str) -> Result<String> {
 /// hexadecimal characters is treated as hex WKB; anything else is treated as
 /// WKT.
 ///
-/// When `extended` is `true` (EWKB), any SRID present in the input is embedded
-/// in the output bytes.  When `false` (plain WKB), the SRID is discarded.
-pub fn text_to_wkb(text: &str, extended: bool) -> Result<Vec<u8>> {
+/// `extended` controls SRID handling in the output:
+/// - `None` (default): mirror the input — SRID is kept if present, absent if not.
+/// - `Some(true)`: force EWKB — SRID is embedded when present in the input.
+/// - `Some(false)`: force plain WKB — SRID is always stripped.
+pub fn text_to_wkb(text: &str, extended: Option<bool>) -> Result<Vec<u8>> {
     let trimmed = text.trim();
-    if extended {
-        if is_hex_str(trimmed) {
-            decode_hex(trimmed)
-        } else {
-            wkt_to_wkb(trimmed)
-        }
-    } else {
+    if extended == Some(false) {
         if is_hex_str(trimmed) {
             let bytes = decode_hex(trimmed)?;
             let (wkt, _) = wkb_to_wkt_split_srid(&bytes)?;
             wkt_to_wkb(&wkt)
         } else {
             wkt_to_wkb_split_srid(trimmed).map(|(b, _)| b)
+        }
+    } else {
+        // None or Some(true): preserve the input's SRID state
+        if is_hex_str(trimmed) {
+            decode_hex(trimmed)
+        } else {
+            wkt_to_wkb(trimmed)
         }
     }
 }
@@ -83,24 +86,26 @@ pub fn text_to_wkb(text: &str, extended: bool) -> Result<Vec<u8>> {
 /// hexadecimal characters is treated as hex WKB; anything else is treated as
 /// WKT (and is normalised by a round-trip through WKB).
 ///
-/// When `extended` is `true` (EWKT), any SRID present in the input is included
-/// in the output as a `SRID=N;` prefix.  When `false` (plain WKT), it is
-/// discarded.
-pub fn text_to_wkt(text: &str, extended: bool) -> Result<String> {
+/// `extended` controls SRID handling in the output:
+/// - `None` (default): mirror the input — `SRID=N;` prefix is kept if present, absent if not.
+/// - `Some(true)`: force EWKT — `SRID=N;` prefix is included when present in the input.
+/// - `Some(false)`: force plain WKT — `SRID=N;` prefix is always stripped.
+pub fn text_to_wkt(text: &str, extended: Option<bool>) -> Result<String> {
     let trimmed = text.trim();
-    if extended {
-        if is_hex_str(trimmed) {
-            hex_wkb_to_wkt(trimmed)
-        } else {
-            let wkb = wkt_to_wkb(trimmed)?;
-            wkb_to_wkt(&wkb)
-        }
-    } else {
+    if extended == Some(false) {
         if is_hex_str(trimmed) {
             let bytes = decode_hex(trimmed)?;
             wkb_to_wkt_split_srid(&bytes).map(|(s, _)| s)
         } else {
             let (wkb, _) = wkt_to_wkb_split_srid(trimmed)?;
+            wkb_to_wkt(&wkb)
+        }
+    } else {
+        // None or Some(true): preserve the input's SRID state
+        if is_hex_str(trimmed) {
+            hex_wkb_to_wkt(trimmed)
+        } else {
+            let wkb = wkt_to_wkb(trimmed)?;
             wkb_to_wkt(&wkb)
         }
     }

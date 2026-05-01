@@ -50,22 +50,28 @@ fn hex_wkb_to_wkt(hex: &str) -> PyResult<String> {
 }
 
 /// Converts a WKT/EWKT string or a hex-encoded WKB/EWKB string to WKB bytes.
-/// The input format is detected automatically. When *extended* is True (default)
-/// any SRID in the input is embedded in the output (EWKB); when False it is
-/// discarded (plain WKB).
+/// The input format is detected automatically.
+///
+/// *extended* controls SRID handling in the output:
+/// - ``None`` (default): mirror the input — SRID is kept if present, absent if not.
+/// - ``True``: force EWKB — SRID is embedded when present in the input.
+/// - ``False``: force plain WKB — SRID is always stripped.
 #[pyfunction]
-#[pyo3(signature = (text, extended=true))]
-fn text_to_wkb(text: &str, extended: bool) -> PyResult<Vec<u8>> {
+#[pyo3(signature = (text, extended=None))]
+fn text_to_wkb(text: &str, extended: Option<bool>) -> PyResult<Vec<u8>> {
     core::text_to_wkb(text, extended).map_err(to_py_err)
 }
 
 /// Converts a WKT/EWKT string or a hex-encoded WKB/EWKB string to a WKT string.
-/// The input format is detected automatically; WKT input is normalised. When
-/// *extended* is True (default) any SRID in the input is included in the output
-/// as a ``SRID=N;`` prefix (EWKT); when False it is discarded (plain WKT).
+/// The input format is detected automatically; WKT input is normalised.
+///
+/// *extended* controls SRID handling in the output:
+/// - ``None`` (default): mirror the input — ``SRID=N;`` prefix is kept if present, absent if not.
+/// - ``True``: force EWKT — ``SRID=N;`` prefix is included when present in the input.
+/// - ``False``: force plain WKT — ``SRID=N;`` prefix is always stripped.
 #[pyfunction]
-#[pyo3(signature = (text, extended=true))]
-fn text_to_wkt(text: &str, extended: bool) -> PyResult<String> {
+#[pyo3(signature = (text, extended=None))]
+fn text_to_wkt(text: &str, extended: Option<bool>) -> PyResult<String> {
     core::text_to_wkt(text, extended).map_err(to_py_err)
 }
 

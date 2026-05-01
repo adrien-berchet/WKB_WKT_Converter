@@ -173,9 +173,25 @@ def test_text_to_wkb_invalid_raises_value_error():
         m.text_to_wkb("NOT_A_GEOMETRY (1 2)")
 
 
-def test_text_to_wkb_extended_true_default():
-    # extended=True is the default and must match the explicit call
-    assert m.text_to_wkb("SRID=4326;POINT (1 2)") == m.text_to_wkb("SRID=4326;POINT (1 2)", extended=True)
+def test_text_to_wkb_extended_none_is_default():
+    # extended=None is the default
+    ewkt = "SRID=4326;POINT (1 2)"
+    assert m.text_to_wkb(ewkt) == m.text_to_wkb(ewkt, extended=None)
+
+
+def test_text_to_wkb_extended_none_mirrors_input_with_srid():
+    result = m.text_to_wkb("SRID=4326;POINT (1 2)", extended=None)
+    assert m.wkb_to_wkt(result) == "SRID=4326;POINT (1 2)"
+
+
+def test_text_to_wkb_extended_none_mirrors_input_without_srid():
+    result = m.text_to_wkb("POINT (1 2)", extended=None)
+    assert m.wkb_to_wkt(result) == "POINT (1 2)"
+
+
+def test_text_to_wkb_extended_true_preserves_srid():
+    result = m.text_to_wkb("SRID=4326;POINT (1 2)", extended=True)
+    assert m.wkb_to_wkt(result) == "SRID=4326;POINT (1 2)"
 
 
 def test_text_to_wkb_extended_false_strips_srid_from_wkt():
@@ -253,9 +269,21 @@ def test_text_to_wkt_invalid_raises_value_error():
         m.text_to_wkt("NOT_A_GEOMETRY (1 2)")
 
 
-def test_text_to_wkt_extended_true_default():
+def test_text_to_wkt_extended_none_is_default():
     ewkt = "SRID=4326;POINT (1 2)"
-    assert m.text_to_wkt(ewkt) == m.text_to_wkt(ewkt, extended=True)
+    assert m.text_to_wkt(ewkt) == m.text_to_wkt(ewkt, extended=None)
+
+
+def test_text_to_wkt_extended_none_mirrors_input_with_srid():
+    assert m.text_to_wkt("SRID=4326;POINT (1 2)", extended=None) == "SRID=4326;POINT (1 2)"
+
+
+def test_text_to_wkt_extended_none_mirrors_input_without_srid():
+    assert m.text_to_wkt("POINT (1 2)", extended=None) == "POINT (1 2)"
+
+
+def test_text_to_wkt_extended_true_preserves_srid():
+    assert m.text_to_wkt("SRID=4326;POINT (1 2)", extended=True) == "SRID=4326;POINT (1 2)"
 
 
 def test_text_to_wkt_extended_false_strips_srid_from_wkt():
