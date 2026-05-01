@@ -1,6 +1,6 @@
 /// WKT → WKB tests. Where possible we verify the exact bytes against known
 /// PostGIS output. All tests also include a round-trip assertion.
-use wkb_wkt_converter::{wkt_to_wkb, wkt_to_wkb_split_srid, wkt_to_hex_wkb, wkb_to_wkt};
+use wkb_wkt_converter::{wkb_to_wkt, wkt_to_hex_wkb, wkt_to_wkb, wkt_to_wkb_split_srid};
 
 fn roundtrip(wkt: &str) -> String {
     let wkb = wkt_to_wkb(wkt).unwrap();
@@ -81,12 +81,18 @@ fn point_no_srid_split() {
 
 #[test]
 fn linestring_xy_roundtrip() {
-    assert_eq!(roundtrip("LINESTRING (0 0, 1 1, 2 2)"), "LINESTRING (0 0, 1 1, 2 2)");
+    assert_eq!(
+        roundtrip("LINESTRING (0 0, 1 1, 2 2)"),
+        "LINESTRING (0 0, 1 1, 2 2)"
+    );
 }
 
 #[test]
 fn linestring_xyz_roundtrip() {
-    assert_eq!(roundtrip("LINESTRING Z (0 0 0, 1 1 1)"), "LINESTRING Z (0 0 0, 1 1 1)");
+    assert_eq!(
+        roundtrip("LINESTRING Z (0 0 0, 1 1 1)"),
+        "LINESTRING Z (0 0 0, 1 1 1)"
+    );
 }
 
 #[test]
@@ -219,7 +225,10 @@ fn geometrycollection_nested_roundtrip() {
 
 #[test]
 fn geometrycollection_empty_roundtrip() {
-    assert_eq!(roundtrip("GEOMETRYCOLLECTION EMPTY"), "GEOMETRYCOLLECTION EMPTY");
+    assert_eq!(
+        roundtrip("GEOMETRYCOLLECTION EMPTY"),
+        "GEOMETRYCOLLECTION EMPTY"
+    );
 }
 
 // ── Hex convenience ──────────────────────────────────────────────────────────
@@ -228,7 +237,9 @@ fn geometrycollection_empty_roundtrip() {
 fn wkt_to_hex_wkb_point() {
     let hex = wkt_to_hex_wkb("POINT (1 2)").unwrap();
     // Must be uppercase hex
-    assert!(hex.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit()));
+    assert!(hex
+        .chars()
+        .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit()));
     // Must round-trip
     use wkb_wkt_converter::hex_wkb_to_wkt;
     assert_eq!(hex_wkb_to_wkt(&hex).unwrap(), "POINT (1 2)");
@@ -238,10 +249,7 @@ fn wkt_to_hex_wkb_point() {
 
 #[test]
 fn extra_whitespace_is_accepted() {
-    assert_eq!(
-        roundtrip("  POINT  (  1   2  )  "),
-        "POINT (1 2)"
-    );
+    assert_eq!(roundtrip("  POINT  (  1   2  )  "), "POINT (1 2)");
 }
 
 // ── Error cases ──────────────────────────────────────────────────────────────

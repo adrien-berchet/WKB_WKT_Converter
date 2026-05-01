@@ -16,6 +16,5 @@ classifiers = [
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
-module-name = "wkb_wkt_converter._wkb_wkt_converter"
-python-source = "python"
+module-name = "wkb_wkt_converter"
 manifest-path = "wkb_wkt_converter_py/Cargo.toml"

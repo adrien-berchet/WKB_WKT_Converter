@@ -29,9 +29,7 @@ impl<'a> Tokenizer<'a> {
     pub fn read_srid_prefix(&mut self) -> Result<Option<u32>> {
         self.skip_whitespace();
         // Use a case-insensitive prefix check on the first 5 ASCII bytes
-        if self.rest().len() >= 5
-            && self.rest()[..5].eq_ignore_ascii_case("SRID=")
-        {
+        if self.rest().len() >= 5 && self.rest()[..5].eq_ignore_ascii_case("SRID=") {
             self.pos += 5;
             let srid = self.read_uint()?;
             self.skip_whitespace();
@@ -47,16 +45,20 @@ impl<'a> Tokenizer<'a> {
     }
 
     fn read_uint(&mut self) -> Result<u32> {
-        let end = self.rest().find(|c: char| !c.is_ascii_digit()).unwrap_or(self.rest().len());
+        let end = self
+            .rest()
+            .find(|c: char| !c.is_ascii_digit())
+            .unwrap_or(self.rest().len());
         if end == 0 {
             return Err(Error::InvalidWkt(format!(
-                "expected integer at position {}", self.pos
+                "expected integer at position {}",
+                self.pos
             )));
         }
         let s = &self.rest()[..end];
-        let v = s.parse::<u32>().map_err(|_| {
-            Error::InvalidWkt(format!("integer out of u32 range: {s}"))
-        })?;
+        let v = s
+            .parse::<u32>()
+            .map_err(|_| Error::InvalidWkt(format!("integer out of u32 range: {s}")))?;
         self.pos += end;
         Ok(v)
     }
@@ -68,21 +70,27 @@ impl<'a> Tokenizer<'a> {
         let upper = rest.to_ascii_uppercase();
 
         // Match longest keyword first to avoid POINT matching MULTIPOINT.
-        let (geom_type, keyword_len) =
-            if upper.starts_with("GEOMETRYCOLLECTION") { (GeomType::GeometryCollection, 18) }
-            else if upper.starts_with("MULTILINESTRING")  { (GeomType::MultiLineString,    15) }
-            else if upper.starts_with("MULTIPOLYGON")     { (GeomType::MultiPolygon,       12) }
-            else if upper.starts_with("MULTIPOINT")       { (GeomType::MultiPoint,         10) }
-            else if upper.starts_with("LINESTRING")       { (GeomType::LineString,         10) }
-            else if upper.starts_with("POLYGON")          { (GeomType::Polygon,             7) }
-            else if upper.starts_with("POINT")            { (GeomType::Point,               5) }
-            else {
-                return Err(Error::InvalidWkt(format!(
-                    "unknown geometry type at position {}: {:?}",
-                    self.pos,
-                    &rest[..rest.len().min(20)]
-                )));
-            };
+        let (geom_type, keyword_len) = if upper.starts_with("GEOMETRYCOLLECTION") {
+            (GeomType::GeometryCollection, 18)
+        } else if upper.starts_with("MULTILINESTRING") {
+            (GeomType::MultiLineString, 15)
+        } else if upper.starts_with("MULTIPOLYGON") {
+            (GeomType::MultiPolygon, 12)
+        } else if upper.starts_with("MULTIPOINT") {
+            (GeomType::MultiPoint, 10)
+        } else if upper.starts_with("LINESTRING") {
+            (GeomType::LineString, 10)
+        } else if upper.starts_with("POLYGON") {
+            (GeomType::Polygon, 7)
+        } else if upper.starts_with("POINT") {
+            (GeomType::Point, 5)
+        } else {
+            return Err(Error::InvalidWkt(format!(
+                "unknown geometry type at position {}: {:?}",
+                self.pos,
+                &rest[..rest.len().min(20)]
+            )));
+        };
 
         self.pos += keyword_len;
         let dim = self.read_dim_tag()?;
@@ -179,10 +187,17 @@ impl<'a> Tokenizer<'a> {
     pub fn read_comma_or_rparen(&mut self) -> Result<bool> {
         self.skip_whitespace();
         match self.rest().chars().next() {
-            Some(',') => { self.pos += 1; Ok(true) }
-            Some(')') => { self.pos += 1; Ok(false) }
+            Some(',') => {
+                self.pos += 1;
+                Ok(true)
+            }
+            Some(')') => {
+                self.pos += 1;
+                Ok(false)
+            }
             c => Err(Error::InvalidWkt(format!(
-                "expected ',' or ')' at position {}, got {:?}", self.pos, c
+                "expected ',' or ')' at position {}, got {:?}",
+                self.pos, c
             ))),
         }
     }
@@ -224,5 +239,8 @@ impl<'a> Tokenizer<'a> {
 }
 
 fn word_ends_at(s: &str, offset: usize) -> bool {
-    s[offset..].chars().next().is_none_or(|c| !c.is_alphabetic())
+    s[offset..]
+        .chars()
+        .next()
+        .is_none_or(|c| !c.is_alphabetic())
 }

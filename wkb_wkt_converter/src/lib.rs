@@ -34,11 +34,13 @@ pub fn wkt_to_wkb_split_srid(wkt: &str) -> Result<(Vec<u8>, Option<u32>)> {
 /// Converts a WKT/EWKT string to an uppercase hex-encoded EWKB string.
 pub fn wkt_to_hex_wkb(wkt: &str) -> Result<String> {
     let bytes = wkt_to_wkb(wkt)?;
-    Ok(bytes.iter().fold(String::with_capacity(bytes.len() * 2), |mut s, b| {
-        use std::fmt::Write as _;
-        write!(s, "{b:02X}").unwrap();
-        s
-    }))
+    Ok(bytes
+        .iter()
+        .fold(String::with_capacity(bytes.len() * 2), |mut s, b| {
+            use std::fmt::Write as _;
+            write!(s, "{b:02X}").unwrap();
+            s
+        }))
 }
 
 /// Converts a hex-encoded WKB/EWKB string to a WKT/EWKT string.

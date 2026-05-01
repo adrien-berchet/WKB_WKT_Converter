@@ -7,7 +7,10 @@ pub(super) struct WkbWriter {
 
 impl WkbWriter {
     pub fn new(little_endian: bool) -> Self {
-        Self { buf: Vec::new(), little_endian }
+        Self {
+            buf: Vec::new(),
+            little_endian,
+        }
     }
 
     pub fn into_bytes(self) -> Vec<u8> {
@@ -19,12 +22,20 @@ impl WkbWriter {
     }
 
     pub fn write_u32(&mut self, v: u32) {
-        let bytes = if self.little_endian { v.to_le_bytes() } else { v.to_be_bytes() };
+        let bytes = if self.little_endian {
+            v.to_le_bytes()
+        } else {
+            v.to_be_bytes()
+        };
         self.buf.extend_from_slice(&bytes);
     }
 
     pub fn write_f64(&mut self, v: f64) {
-        let bytes = if self.little_endian { v.to_le_bytes() } else { v.to_be_bytes() };
+        let bytes = if self.little_endian {
+            v.to_le_bytes()
+        } else {
+            v.to_be_bytes()
+        };
         self.buf.extend_from_slice(&bytes);
     }
 
@@ -38,7 +49,11 @@ impl WkbWriter {
 
     /// Seeks back to `pos` and overwrites the placeholder with `v`.
     pub fn patch_u32(&mut self, pos: usize, v: u32) {
-        let bytes = if self.little_endian { v.to_le_bytes() } else { v.to_be_bytes() };
+        let bytes = if self.little_endian {
+            v.to_le_bytes()
+        } else {
+            v.to_be_bytes()
+        };
         self.buf[pos..pos + 4].copy_from_slice(&bytes);
     }
 
