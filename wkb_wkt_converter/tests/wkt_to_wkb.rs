@@ -278,3 +278,46 @@ fn trailing_content_errors() {
 fn srid_without_semicolon_errors() {
     assert!(wkt_to_wkb("SRID=4326 POINT (1 2)").is_err());
 }
+
+#[test]
+fn srid_missing_integer_errors() {
+    // SRID= followed immediately by ';' — no integer value present
+    assert!(wkt_to_wkb("SRID=;POINT (1 2)").is_err());
+}
+
+// ── Tokenizer edge cases ──────────────────────────────────────────────────────
+
+#[test]
+fn point_no_space_before_paren() {
+    // No whitespace between keyword and '(' — still valid, no dimension tag
+    assert_eq!(roundtrip("POINT(1 2)"), "POINT (1 2)");
+}
+
+#[test]
+fn invalid_coordinate_nonnumeric_errors() {
+    assert!(wkt_to_wkb("POINT (abc 2)").is_err());
+}
+
+#[test]
+fn invalid_coordinate_double_dot_errors() {
+    // "1.2.3" is consumed as a token but fails f64 parsing
+    assert!(wkt_to_wkb("POINT (1.2.3 4)").is_err());
+}
+
+#[test]
+fn polygon_missing_ring_paren_errors() {
+    // Ring coordinates without inner parentheses — expect_lparen inside read_rings fails
+    assert!(wkt_to_wkb("POLYGON (0 0, 1 0, 1 1, 0 0)").is_err());
+}
+
+#[test]
+fn linestring_invalid_separator_errors() {
+    // '+' is neither ',' nor ')' — read_comma_or_rparen fails
+    assert!(wkt_to_wkb("LINESTRING (0 0 + 1 1)").is_err());
+}
+
+#[test]
+fn geometry_invalid_body_errors() {
+    // Neither EMPTY nor '(' after the type keyword — read_empty_or_lparen fails
+    assert!(wkt_to_wkb("POINT INVALID").is_err());
+}

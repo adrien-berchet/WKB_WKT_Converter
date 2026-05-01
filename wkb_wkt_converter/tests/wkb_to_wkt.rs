@@ -273,3 +273,97 @@ fn unsupported_type_errors() {
     wkb.extend_from_slice(&99u32.to_le_bytes());
     assert!(wkb_to_wkt(&wkb).is_err());
 }
+
+#[test]
+fn truncated_before_type_code_errors() {
+    // Byte-order byte present but only 2 of the 4 type-code bytes available
+    assert!(wkb_to_wkt(&[0x01, 0x01, 0x00]).is_err());
+}
+
+// ── MultiPoint edge cases ─────────────────────────────────────────────────────
+
+#[test]
+fn multipoint_with_empty_sub_point() {
+    // A MultiPoint containing one real point and one EMPTY (NaN) sub-point.
+    // The reader should render the EMPTY sub-point as "EMPTY" (no parens).
+    let mut wkb = vec![0x01u8];
+    wkb.extend_from_slice(&4u32.to_le_bytes()); // MultiPoint
+    wkb.extend_from_slice(&2u32.to_le_bytes()); // 2 members
+    // Member 1: normal point (1, 2)
+    wkb.push(0x01);
+    wkb.extend_from_slice(&1u32.to_le_bytes()); // Point
+    wkb.extend_from_slice(&1.0f64.to_le_bytes());
+    wkb.extend_from_slice(&2.0f64.to_le_bytes());
+    // Member 2: EMPTY point (NaN, NaN)
+    wkb.push(0x01);
+    wkb.extend_from_slice(&1u32.to_le_bytes()); // Point
+    wkb.extend_from_slice(&f64::NAN.to_le_bytes());
+    wkb.extend_from_slice(&f64::NAN.to_le_bytes());
+    assert_eq!(wkb_to_wkt(&wkb).unwrap(), "MULTIPOINT ((1 2), EMPTY)");
+}
+
+#[test]
+fn multipoint_wrong_subtype_errors() {
+    // A MultiPoint whose sole member is a LineString — must be rejected.
+    let mut wkb = vec![0x01u8];
+    wkb.extend_from_slice(&4u32.to_le_bytes()); // MultiPoint
+    wkb.extend_from_slice(&1u32.to_le_bytes()); // 1 member
+    wkb.push(0x01);
+    wkb.extend_from_slice(&2u32.to_le_bytes()); // LineString (not Point)
+    wkb.extend_from_slice(&0u32.to_le_bytes()); // 0 points
+    assert!(wkb_to_wkt(&wkb).is_err());
+}
+
+// ── MultiLineString edge cases ────────────────────────────────────────────────
+
+#[test]
+fn multilinestring_empty_member() {
+    // A MultiLineString whose sole member is an empty (0-point) LineString.
+    let mut wkb = vec![0x01u8];
+    wkb.extend_from_slice(&5u32.to_le_bytes()); // MultiLineString
+    wkb.extend_from_slice(&1u32.to_le_bytes()); // 1 member
+    wkb.push(0x01);
+    wkb.extend_from_slice(&2u32.to_le_bytes()); // LineString
+    wkb.extend_from_slice(&0u32.to_le_bytes()); // 0 points
+    assert_eq!(wkb_to_wkt(&wkb).unwrap(), "MULTILINESTRING (EMPTY)");
+}
+
+#[test]
+fn multilinestring_wrong_subtype_errors() {
+    // A MultiLineString whose member is a Point — must be rejected.
+    let mut wkb = vec![0x01u8];
+    wkb.extend_from_slice(&5u32.to_le_bytes()); // MultiLineString
+    wkb.extend_from_slice(&1u32.to_le_bytes()); // 1 member
+    wkb.push(0x01);
+    wkb.extend_from_slice(&1u32.to_le_bytes()); // Point (not LineString)
+    wkb.extend_from_slice(&1.0f64.to_le_bytes());
+    wkb.extend_from_slice(&2.0f64.to_le_bytes());
+    assert!(wkb_to_wkt(&wkb).is_err());
+}
+
+// ── MultiPolygon edge cases ───────────────────────────────────────────────────
+
+#[test]
+fn multipolygon_empty_member() {
+    // A MultiPolygon whose sole member is an empty (0-ring) Polygon.
+    let mut wkb = vec![0x01u8];
+    wkb.extend_from_slice(&6u32.to_le_bytes()); // MultiPolygon
+    wkb.extend_from_slice(&1u32.to_le_bytes()); // 1 member
+    wkb.push(0x01);
+    wkb.extend_from_slice(&3u32.to_le_bytes()); // Polygon
+    wkb.extend_from_slice(&0u32.to_le_bytes()); // 0 rings
+    assert_eq!(wkb_to_wkt(&wkb).unwrap(), "MULTIPOLYGON (EMPTY)");
+}
+
+#[test]
+fn multipolygon_wrong_subtype_errors() {
+    // A MultiPolygon whose member is a Point — must be rejected.
+    let mut wkb = vec![0x01u8];
+    wkb.extend_from_slice(&6u32.to_le_bytes()); // MultiPolygon
+    wkb.extend_from_slice(&1u32.to_le_bytes()); // 1 member
+    wkb.push(0x01);
+    wkb.extend_from_slice(&1u32.to_le_bytes()); // Point (not Polygon)
+    wkb.extend_from_slice(&1.0f64.to_le_bytes());
+    wkb.extend_from_slice(&2.0f64.to_le_bytes());
+    assert!(wkb_to_wkt(&wkb).is_err());
+}

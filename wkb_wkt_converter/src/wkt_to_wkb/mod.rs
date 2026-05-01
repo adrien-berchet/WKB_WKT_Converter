@@ -10,7 +10,7 @@ use writer::WkbWriter;
 pub(crate) fn convert(wkt: &str) -> Result<Vec<u8>> {
     let mut tok = Tokenizer::new(wkt);
     let srid = tok.read_srid_prefix()?;
-    let mut writer = WkbWriter::new(true);
+    let mut writer = WkbWriter::new();
     parse_geometry(&mut tok, &mut writer, srid)?;
     tok.expect_eof()?;
     Ok(writer.into_bytes())
@@ -20,7 +20,7 @@ pub(crate) fn convert(wkt: &str) -> Result<Vec<u8>> {
 pub(crate) fn convert_split_srid(wkt: &str) -> Result<(Vec<u8>, Option<u32>)> {
     let mut tok = Tokenizer::new(wkt);
     let srid = tok.read_srid_prefix()?;
-    let mut writer = WkbWriter::new(true);
+    let mut writer = WkbWriter::new();
     parse_geometry(&mut tok, &mut writer, None)?;
     tok.expect_eof()?;
     Ok((writer.into_bytes(), srid))

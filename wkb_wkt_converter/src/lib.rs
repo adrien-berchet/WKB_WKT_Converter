@@ -10,7 +10,7 @@ pub use types::{Dimension, GeomType};
 /// Converts WKB/EWKB bytes to a WKT/EWKT string.
 /// If the input is EWKB with an SRID, the output includes a `SRID=N;` prefix.
 pub fn wkb_to_wkt(wkb: &[u8]) -> Result<String> {
-    wkb_to_wkt::convert(wkb, true)
+    wkb_to_wkt::convert(wkb)
 }
 
 /// Converts WKB/EWKB bytes to a WKT string, returning the SRID separately.
