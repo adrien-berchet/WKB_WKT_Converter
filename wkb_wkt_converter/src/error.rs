@@ -22,3 +22,32 @@ impl fmt::Display for Error {
 }
 
 impl std::error::Error for Error {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn invalid_wkt_display() {
+        assert_eq!(
+            Error::InvalidWkt("bad input".into()).to_string(),
+            "invalid WKT: bad input"
+        );
+    }
+
+    #[test]
+    fn invalid_wkb_display() {
+        assert_eq!(
+            Error::InvalidWkb("truncated".into()).to_string(),
+            "invalid WKB: truncated"
+        );
+    }
+
+    #[test]
+    fn unsupported_type_display() {
+        assert_eq!(
+            Error::UnsupportedGeometryType(99).to_string(),
+            "unsupported geometry type code: 99"
+        );
+    }
+}

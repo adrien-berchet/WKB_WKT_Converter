@@ -49,7 +49,7 @@ fn hex_wkb_to_wkt(hex: &str) -> PyResult<String> {
     core::hex_wkb_to_wkt(hex).map_err(to_py_err)
 }
 
-#[pymodule]
+#[pymodule(name = "wkb_wkt_converter")]
 fn wkb_wkt_converter_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(wkb_to_wkt, m)?)?;
     m.add_function(wrap_pyfunction!(wkb_to_wkt_split_srid, m)?)?;

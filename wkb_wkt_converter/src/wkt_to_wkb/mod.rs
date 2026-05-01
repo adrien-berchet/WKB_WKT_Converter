@@ -10,7 +10,7 @@ use writer::WkbWriter;
 pub(crate) fn convert(wkt: &str) -> Result<Vec<u8>> {
     let mut tok = Tokenizer::new(wkt);
     let srid = tok.read_srid_prefix()?;
-    let mut writer = WkbWriter::new(true);
+    let mut writer = WkbWriter::new();
     parse_geometry(&mut tok, &mut writer, srid)?;
     tok.expect_eof()?;
     Ok(writer.into_bytes())
@@ -20,13 +20,17 @@ pub(crate) fn convert(wkt: &str) -> Result<Vec<u8>> {
 pub(crate) fn convert_split_srid(wkt: &str) -> Result<(Vec<u8>, Option<u32>)> {
     let mut tok = Tokenizer::new(wkt);
     let srid = tok.read_srid_prefix()?;
-    let mut writer = WkbWriter::new(true);
+    let mut writer = WkbWriter::new();
     parse_geometry(&mut tok, &mut writer, None)?;
     tok.expect_eof()?;
     Ok((writer.into_bytes(), srid))
 }
 
-fn parse_geometry(tok: &mut Tokenizer<'_>, writer: &mut WkbWriter, srid: Option<u32>) -> Result<()> {
+fn parse_geometry(
+    tok: &mut Tokenizer<'_>,
+    writer: &mut WkbWriter,
+    srid: Option<u32>,
+) -> Result<()> {
     let (geom_type, dim) = tok.read_type_and_dim()?;
     match geom_type {
         GeomType::Point => parse_point(tok, writer, dim, srid),
@@ -116,13 +120,19 @@ fn parse_multi_point(
     let iso_form = tok.peek_lparen();
     loop {
         writer.write_header(GeomType::Point, dim, None);
-        if iso_form { tok.expect_lparen()?; }
+        if iso_form {
+            tok.expect_lparen()?;
+        }
         for _ in 0..dim.coord_size() {
             writer.write_f64(tok.read_number()?);
         }
-        if iso_form { tok.expect_rparen()?; }
+        if iso_form {
+            tok.expect_rparen()?;
+        }
         count += 1;
-        if !tok.read_comma_or_rparen()? { break; }
+        if !tok.read_comma_or_rparen()? {
+            break;
+        }
     }
     writer.patch_u32(count_pos, count);
     Ok(())
@@ -149,7 +159,9 @@ fn parse_multi_linestring(
         let pts = read_coord_seq(tok, writer, dim)?;
         writer.patch_u32(pts_pos, pts);
         count += 1;
-        if !tok.read_comma_or_rparen()? { break; }
+        if !tok.read_comma_or_rparen()? {
+            break;
+        }
     }
     writer.patch_u32(count_pos, count);
     Ok(())
@@ -176,7 +188,9 @@ fn parse_multi_polygon(
         let rings = read_rings(tok, writer, dim)?;
         writer.patch_u32(rings_pos, rings);
         count += 1;
-        if !tok.read_comma_or_rparen()? { break; }
+        if !tok.read_comma_or_rparen()? {
+            break;
+        }
     }
     writer.patch_u32(count_pos, count);
     Ok(())
@@ -200,7 +214,9 @@ fn parse_collection(
         // Members of a GeometryCollection are full WKT geometries with type keywords.
         parse_geometry(tok, writer, None)?;
         count += 1;
-        if !tok.read_comma_or_rparen()? { break; }
+        if !tok.read_comma_or_rparen()? {
+            break;
+        }
     }
     writer.patch_u32(count_pos, count);
     Ok(())
@@ -218,7 +234,9 @@ fn read_coord_seq(tok: &mut Tokenizer<'_>, writer: &mut WkbWriter, dim: Dimensio
             writer.write_f64(tok.read_number()?);
         }
         count += 1;
-        if !tok.read_comma_or_rparen()? { break; }
+        if !tok.read_comma_or_rparen()? {
+            break;
+        }
     }
     Ok(count)
 }
@@ -236,7 +254,9 @@ fn read_rings(tok: &mut Tokenizer<'_>, writer: &mut WkbWriter, dim: Dimension) -
         let pts = read_coord_seq(tok, writer, dim)?;
         writer.patch_u32(pts_pos, pts);
         rings += 1;
-        if !tok.read_comma_or_rparen()? { break; }
+        if !tok.read_comma_or_rparen()? {
+            break;
+        }
     }
     Ok(rings)
 }

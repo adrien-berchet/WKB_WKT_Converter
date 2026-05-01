@@ -1,6 +1,6 @@
 /// WKT → WKB tests. Where possible we verify the exact bytes against known
 /// PostGIS output. All tests also include a round-trip assertion.
-use wkb_wkt_converter::{wkt_to_wkb, wkt_to_wkb_split_srid, wkt_to_hex_wkb, wkb_to_wkt};
+use wkb_wkt_converter::{wkb_to_wkt, wkt_to_hex_wkb, wkt_to_wkb, wkt_to_wkb_split_srid};
 
 fn roundtrip(wkt: &str) -> String {
     let wkb = wkt_to_wkb(wkt).unwrap();
@@ -81,12 +81,18 @@ fn point_no_srid_split() {
 
 #[test]
 fn linestring_xy_roundtrip() {
-    assert_eq!(roundtrip("LINESTRING (0 0, 1 1, 2 2)"), "LINESTRING (0 0, 1 1, 2 2)");
+    assert_eq!(
+        roundtrip("LINESTRING (0 0, 1 1, 2 2)"),
+        "LINESTRING (0 0, 1 1, 2 2)"
+    );
 }
 
 #[test]
 fn linestring_xyz_roundtrip() {
-    assert_eq!(roundtrip("LINESTRING Z (0 0 0, 1 1 1)"), "LINESTRING Z (0 0 0, 1 1 1)");
+    assert_eq!(
+        roundtrip("LINESTRING Z (0 0 0, 1 1 1)"),
+        "LINESTRING Z (0 0 0, 1 1 1)"
+    );
 }
 
 #[test]
@@ -219,7 +225,10 @@ fn geometrycollection_nested_roundtrip() {
 
 #[test]
 fn geometrycollection_empty_roundtrip() {
-    assert_eq!(roundtrip("GEOMETRYCOLLECTION EMPTY"), "GEOMETRYCOLLECTION EMPTY");
+    assert_eq!(
+        roundtrip("GEOMETRYCOLLECTION EMPTY"),
+        "GEOMETRYCOLLECTION EMPTY"
+    );
 }
 
 // ── Hex convenience ──────────────────────────────────────────────────────────
@@ -228,7 +237,9 @@ fn geometrycollection_empty_roundtrip() {
 fn wkt_to_hex_wkb_point() {
     let hex = wkt_to_hex_wkb("POINT (1 2)").unwrap();
     // Must be uppercase hex
-    assert!(hex.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit()));
+    assert!(hex
+        .chars()
+        .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit()));
     // Must round-trip
     use wkb_wkt_converter::hex_wkb_to_wkt;
     assert_eq!(hex_wkb_to_wkt(&hex).unwrap(), "POINT (1 2)");
@@ -238,9 +249,74 @@ fn wkt_to_hex_wkb_point() {
 
 #[test]
 fn extra_whitespace_is_accepted() {
+    assert_eq!(roundtrip("  POINT  (  1   2  )  "), "POINT (1 2)");
+}
+
+#[test]
+fn comma_spacing_variants_are_accepted() {
+    // Spacing around commas between coordinate pairs is irrelevant
+    assert_eq!(roundtrip("LINESTRING(1 2,3 4)"), "LINESTRING (1 2, 3 4)");
+    assert_eq!(roundtrip("LINESTRING(1 2 , 3 4)"), "LINESTRING (1 2, 3 4)");
     assert_eq!(
-        roundtrip("  POINT  (  1   2  )  "),
-        "POINT (1 2)"
+        roundtrip("POLYGON((0 0,1 0,1 1,0 0))"),
+        "POLYGON ((0 0, 1 0, 1 1, 0 0))"
+    );
+}
+
+#[test]
+fn tab_and_newline_whitespace() {
+    assert_eq!(roundtrip("POINT\t(1\t2)"), "POINT (1 2)");
+    assert_eq!(
+        roundtrip("LINESTRING\n(\n0 0,\n1 1\n)"),
+        "LINESTRING (0 0, 1 1)"
+    );
+}
+
+// ── Case insensitivity ────────────────────────────────────────────────────────
+
+#[test]
+fn lowercase_keyword() {
+    assert_eq!(roundtrip("point (1 2)"), "POINT (1 2)");
+    assert_eq!(roundtrip("linestring (0 0, 1 1)"), "LINESTRING (0 0, 1 1)");
+}
+
+#[test]
+fn mixed_case_keyword() {
+    assert_eq!(roundtrip("Point (1 2)"), "POINT (1 2)");
+    assert_eq!(
+        roundtrip("MultiPolygon (((0 0, 1 0, 1 1, 0 0)))"),
+        "MULTIPOLYGON (((0 0, 1 0, 1 1, 0 0)))"
+    );
+}
+
+// ── No space before opening parenthesis ──────────────────────────────────────
+
+#[test]
+fn linestring_no_space_before_paren() {
+    assert_eq!(roundtrip("LINESTRING(0 0, 1 1)"), "LINESTRING (0 0, 1 1)");
+}
+
+#[test]
+fn polygon_no_space_before_paren() {
+    assert_eq!(
+        roundtrip("POLYGON((0 0, 1 0, 1 1, 0 0))"),
+        "POLYGON ((0 0, 1 0, 1 1, 0 0))"
+    );
+}
+
+#[test]
+fn multipoint_no_space_before_paren() {
+    assert_eq!(
+        roundtrip("MULTIPOINT((0 0),(1 1))"),
+        "MULTIPOINT ((0 0), (1 1))"
+    );
+}
+
+#[test]
+fn geometrycollection_no_space_before_paren() {
+    assert_eq!(
+        roundtrip("GEOMETRYCOLLECTION(POINT(1 2))"),
+        "GEOMETRYCOLLECTION (POINT (1 2))"
     );
 }
 
@@ -269,4 +345,47 @@ fn trailing_content_errors() {
 #[test]
 fn srid_without_semicolon_errors() {
     assert!(wkt_to_wkb("SRID=4326 POINT (1 2)").is_err());
+}
+
+#[test]
+fn srid_missing_integer_errors() {
+    // SRID= followed immediately by ';' — no integer value present
+    assert!(wkt_to_wkb("SRID=;POINT (1 2)").is_err());
+}
+
+// ── Tokenizer edge cases ──────────────────────────────────────────────────────
+
+#[test]
+fn point_no_space_before_paren() {
+    // No whitespace between keyword and '(' — still valid, no dimension tag
+    assert_eq!(roundtrip("POINT(1 2)"), "POINT (1 2)");
+}
+
+#[test]
+fn invalid_coordinate_nonnumeric_errors() {
+    assert!(wkt_to_wkb("POINT (abc 2)").is_err());
+}
+
+#[test]
+fn invalid_coordinate_double_dot_errors() {
+    // "1.2.3" is consumed as a token but fails f64 parsing
+    assert!(wkt_to_wkb("POINT (1.2.3 4)").is_err());
+}
+
+#[test]
+fn polygon_missing_ring_paren_errors() {
+    // Ring coordinates without inner parentheses — expect_lparen inside read_rings fails
+    assert!(wkt_to_wkb("POLYGON (0 0, 1 0, 1 1, 0 0)").is_err());
+}
+
+#[test]
+fn linestring_invalid_separator_errors() {
+    // '+' is neither ',' nor ')' — read_comma_or_rparen fails
+    assert!(wkt_to_wkb("LINESTRING (0 0 + 1 1)").is_err());
+}
+
+#[test]
+fn geometry_invalid_body_errors() {
+    // Neither EMPTY nor '(' after the type keyword — read_empty_or_lparen fails
+    assert!(wkt_to_wkb("POINT INVALID").is_err());
 }
