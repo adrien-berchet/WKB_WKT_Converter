@@ -18,3 +18,6 @@ classifiers = [
 features = ["pyo3/extension-module"]
 module-name = "wkb_wkt_converter"
 manifest-path = "wkb_wkt_converter_py/Cargo.toml"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

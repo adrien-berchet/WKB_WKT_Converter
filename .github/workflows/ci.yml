@@ -85,8 +85,11 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install maturin
-        run: pip install maturin
+      - name: Install maturin and pytest
+        run: pip install maturin pytest
 
-      - name: Build Python wheel
-        run: maturin build --release
+      - name: Build and install Python wheel
+        run: maturin build --release && pip install --force-reinstall target/wheels/*.whl
+
+      - name: Run Python tests
+        run: pytest
