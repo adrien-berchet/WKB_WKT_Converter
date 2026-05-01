@@ -12,4 +12,4 @@ crate-type = ["cdylib"]
 
 [dependencies]
 wkb_wkt_converter = { path = "../wkb_wkt_converter" }
-pyo3 = { version = "0.22", features = ["extension-module"] }
+pyo3 = { version = "0.23", features = ["extension-module"] }
