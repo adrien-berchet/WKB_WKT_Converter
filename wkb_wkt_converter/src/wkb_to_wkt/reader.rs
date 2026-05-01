@@ -87,11 +87,12 @@ impl<'a> WkbReader<'a> {
 
         let (geom_code, dim) = if has_z || has_m {
             // EWKB dimension encoding via flag bits
-            let dim = match (has_z, has_m) {
-                (true, false) => Dimension::XYZ,
-                (false, true) => Dimension::XYM,
-                (true, true) => Dimension::XYZM,
-                _ => unreachable!(),
+            let dim = if has_z && has_m {
+                Dimension::XYZM
+            } else if has_z {
+                Dimension::XYZ
+            } else {
+                Dimension::XYM
             };
             (base, dim)
         } else if base > 3000 {
