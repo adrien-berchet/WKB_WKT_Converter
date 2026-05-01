@@ -289,7 +289,7 @@ fn multipoint_with_empty_sub_point() {
     let mut wkb = vec![0x01u8];
     wkb.extend_from_slice(&4u32.to_le_bytes()); // MultiPoint
     wkb.extend_from_slice(&2u32.to_le_bytes()); // 2 members
-    // Member 1: normal point (1, 2)
+                                                // Member 1: normal point (1, 2)
     wkb.push(0x01);
     wkb.extend_from_slice(&1u32.to_le_bytes()); // Point
     wkb.extend_from_slice(&1.0f64.to_le_bytes());
