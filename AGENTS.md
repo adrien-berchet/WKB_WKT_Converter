@@ -1,0 +1,57 @@
+# AGENTS.md
+
+This file provides guidance to AI coding agents when working with code in this repository.
+
+## Commands
+
+```sh
+# Rust tests, lint, formatting
+cargo test --workspace           # run all Rust tests
+cargo test --package wkb_wkt_converter -- <test_name>  # run a single test
+cargo clippy --all-targets --all-features -- -D warnings
+cargo fmt --all                  # apply formatting
+cargo fmt --all -- --check       # check only (CI mode)
+
+# Python bindings (requires maturin and a Rust toolchain)
+maturin develop                  # build and install into the active virtualenv
+pytest                           # run Python binding tests
+```
+
+## Architecture
+
+This is a Rust workspace with two crates and a Python layer on top:
+
+```
+wkb_wkt_converter/      core Rust library (zero runtime dependencies)
+wkb_wkt_converter_py/   PyO3 bindings; thin wrappers that map Rust errors to ValueError
+tests/                  Python tests (pytest)
+```
+
+### Core library (`wkb_wkt_converter/src/`)
+
+**`lib.rs`** — public API surface: six free functions (`wkb_to_wkt`, `wkb_to_wkt_split_srid`, `wkt_to_wkb`, `wkt_to_wkb_split_srid`, `wkt_to_hex_wkb`, `hex_wkb_to_wkt`). The `_split_srid` variants return the SRID separately rather than embedding it in the output.
+
+**`types.rs`** — `GeomType` (7 OGC types), `Dimension` (XY/XYZ/XYM/XYZM), and the EWKB flag-bit constants (`EWKB_Z`, `EWKB_M`, `EWKB_SRID`).
+
+**`error.rs`** — three-variant `Error` enum (`InvalidWkt`, `InvalidWkb`, `UnsupportedGeometryType`).
+
+#### WKB → WKT (`wkb_to_wkt/`)
+
+- **`reader.rs`** (`WkbReader`): byte-cursor that reads the byte-order marker, then the 4-byte type code. The type code is decoded for both EWKB (high-bit flags) and ISO WKB (type+1000/2000/3000 offsets). Sub-geometries in MULTI* types each carry their own full WKB header.
+- **`builder.rs`** (`WktBuilder`): string accumulator. `push_f64` renders whole-valued floats as integers (`1` not `1.0`) and uses Rust's default float formatter otherwise.
+
+#### WKT → WKB (`wkt_to_wkb/`)
+
+- **`tokenizer.rs`** (`Tokenizer`): hand-written cursor over the WKT `&str`. Handles case-insensitive keywords, optional whitespace, dimension tags (Z / M / ZM), `EMPTY`, and the `SRID=N;` prefix.
+- **`writer.rs`** (`WkbWriter`): byte buffer with a **seekable-patch pattern** — `reserve_u32()` writes a `0x00000000` placeholder and returns its offset; `patch_u32(pos, value)` seeks back to fill it in once the real count is known. This avoids a two-pass scan of the input. All output is little-endian.
+- **`mod.rs`**: recursive descent parser that calls `parse_geometry` → type-specific `parse_*` functions. `POINT EMPTY` encodes all coordinates as NaN (PostGIS convention). `MULTIPOINT` auto-detects ISO form `((x y))` vs bare form `(x y)`.
+
+### Python bindings (`wkb_wkt_converter_py/src/lib.rs`)
+
+Each public Rust function is wrapped in a `#[pyfunction]` that converts `wkb_wkt_converter::Error` into `PyValueError`. The `#![allow(clippy::useless_conversion)]` suppression at the top is a false-positive workaround required by PyO3's macro expansion.
+
+## Key invariants
+
+- **Output is always little-endian EWKB** regardless of the endianness of the input WKB.
+- **SRID is only in the top-level header**, never in sub-geometry headers of MULTI* or GeometryCollection.
+- Both EWKB (flag-bit dimension encoding) and ISO WKB (type-offset dimension encoding) are accepted as input; only EWKB is produced as output.
