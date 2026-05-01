@@ -252,6 +252,63 @@ fn extra_whitespace_is_accepted() {
     assert_eq!(roundtrip("  POINT  (  1   2  )  "), "POINT (1 2)");
 }
 
+#[test]
+fn tab_and_newline_whitespace() {
+    assert_eq!(roundtrip("POINT\t(1\t2)"), "POINT (1 2)");
+    assert_eq!(
+        roundtrip("LINESTRING\n(\n0 0,\n1 1\n)"),
+        "LINESTRING (0 0, 1 1)"
+    );
+}
+
+// ── Case insensitivity ────────────────────────────────────────────────────────
+
+#[test]
+fn lowercase_keyword() {
+    assert_eq!(roundtrip("point (1 2)"), "POINT (1 2)");
+    assert_eq!(roundtrip("linestring (0 0, 1 1)"), "LINESTRING (0 0, 1 1)");
+}
+
+#[test]
+fn mixed_case_keyword() {
+    assert_eq!(roundtrip("Point (1 2)"), "POINT (1 2)");
+    assert_eq!(
+        roundtrip("MultiPolygon (((0 0, 1 0, 1 1, 0 0)))"),
+        "MULTIPOLYGON (((0 0, 1 0, 1 1, 0 0)))"
+    );
+}
+
+// ── No space before opening parenthesis ──────────────────────────────────────
+
+#[test]
+fn linestring_no_space_before_paren() {
+    assert_eq!(roundtrip("LINESTRING(0 0, 1 1)"), "LINESTRING (0 0, 1 1)");
+}
+
+#[test]
+fn polygon_no_space_before_paren() {
+    assert_eq!(
+        roundtrip("POLYGON((0 0, 1 0, 1 1, 0 0))"),
+        "POLYGON ((0 0, 1 0, 1 1, 0 0))"
+    );
+}
+
+#[test]
+fn multipoint_no_space_before_paren() {
+    assert_eq!(
+        roundtrip("MULTIPOINT((0 0),(1 1))"),
+        "MULTIPOINT ((0 0), (1 1))"
+    );
+}
+
+#[test]
+fn geometrycollection_no_space_before_paren() {
+    assert_eq!(
+        roundtrip("GEOMETRYCOLLECTION(POINT(1 2))"),
+        "GEOMETRYCOLLECTION (POINT (1 2))"
+    );
+}
+
 // ── Error cases ──────────────────────────────────────────────────────────────
 
 #[test]

@@ -102,6 +102,28 @@ def test_wkb_to_wkt_split_srid_no_srid():
     assert srid is None
 
 
+# ── whitespace and case tolerance ────────────────────────────────────────────
+
+@pytest.mark.parametrize("wkt,expected", [
+    # no space before opening parenthesis
+    ("POINT(1 2)",                          "POINT (1 2)"),
+    ("LINESTRING(0 0, 1 1)",                "LINESTRING (0 0, 1 1)"),
+    ("POLYGON((0 0, 1 0, 1 1, 0 0))",       "POLYGON ((0 0, 1 0, 1 1, 0 0))"),
+    ("MULTIPOINT((0 0),(1 1))",             "MULTIPOINT ((0 0), (1 1))"),
+    ("GEOMETRYCOLLECTION(POINT(1 2))",      "GEOMETRYCOLLECTION (POINT (1 2))"),
+    # lowercase and mixed-case keywords
+    ("point (1 2)",                         "POINT (1 2)"),
+    ("Point (1 2)",                         "POINT (1 2)"),
+    ("linestring (0 0, 1 1)",               "LINESTRING (0 0, 1 1)"),
+    ("MultiPolygon (((0 0, 1 0, 1 1, 0 0)))","MULTIPOLYGON (((0 0, 1 0, 1 1, 0 0)))"),
+    # tabs and newlines as whitespace
+    ("POINT\t(1\t2)",                       "POINT (1 2)"),
+    ("LINESTRING\n(\n0 0,\n1 1\n)",         "LINESTRING (0 0, 1 1)"),
+])
+def test_wkt_input_variants(wkt, expected):
+    assert roundtrip(wkt) == expected
+
+
 # ── hex helpers ───────────────────────────────────────────────────────────────
 
 def test_wkt_to_hex_wkb_returns_uppercase_str():
