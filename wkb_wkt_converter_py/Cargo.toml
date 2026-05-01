@@ -1,0 +1,15 @@
+[package]
+name = "wkb_wkt_converter_py"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Python bindings for wkb_wkt_converter"
+
+[lib]
+name = "wkb_wkt_converter_py"
+crate-type = ["cdylib"]
+
+[dependencies]
+wkb_wkt_converter = { path = "../wkb_wkt_converter" }
+pyo3 = { version = "0.22", features = ["extension-module"] }

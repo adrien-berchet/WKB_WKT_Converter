@@ -1,0 +1,21 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "wkb_wkt_converter"
+requires-python = ">=3.8"
+description = "High-performance streaming converter between WKT and WKB geometry formats"
+license = { text = "MIT" }
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: Implementation :: PyPy",
+    "Topic :: Scientific/Engineering :: GIS",
+]
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
+module-name = "wkb_wkt_converter._wkb_wkt_converter"
+python-source = "python"
+manifest-path = "wkb_wkt_converter_py/Cargo.toml"
