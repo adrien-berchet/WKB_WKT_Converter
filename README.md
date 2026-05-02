@@ -214,7 +214,7 @@ assert wkt == "SRID=4326;POLYGON ((0 0, 1 0, 1 1, 0 0))"
 
 # Hex WKB (common PostGIS text format)
 hex_wkb = wkt_to_hex_wkb("POINT (1 2)")
-wkt = hex_wkb_to_wkt(hex_wkb)
+wkt = text_to_wkt(hex_wkb)
 assert wkt == "POINT (1 2)"
 
 # Generic converters: input format detected automatically
