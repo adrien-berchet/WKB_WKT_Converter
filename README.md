@@ -81,8 +81,9 @@ pub fn text_to_hex_wkb(text: &str, srid: SridMode) -> Result<String>
 `text_to_wkt` accepts a `normalize_wkt: bool` parameter.  When `true`, WKT
 input is normalised (canonical casing, spacing, coordinate formatting) via a
 round-trip through WKB.  When `false`, WKT input is returned as-is (only the
-SRID prefix is adjusted), which avoids the encoding overhead.  Hex WKB input is
-always decoded to normalised WKT regardless of this flag.
+SRID prefix is adjusted), which avoids the encoding overhead — **but no
+validation is performed: malformed WKT is returned without error.**  Hex WKB
+input is always decoded to normalised WKT regardless of this flag.
 
 ### Example
 
@@ -201,8 +202,9 @@ The `srid` keyword argument controls SRID handling in the output:
 When `True`, WKT input is normalised (canonical casing, spacing, coordinate
 formatting) via a round-trip through WKB.  When `False` (the default), WKT
 input is returned as-is (only the SRID prefix is adjusted), which avoids the
-encoding overhead.  Hex WKB input is always decoded to normalised WKT regardless
-of this flag.
+encoding overhead — **but no validation is performed: malformed WKT is returned
+without raising an error.**  Hex WKB input is always decoded to normalised WKT
+regardless of this flag.
 
 ### Example
 

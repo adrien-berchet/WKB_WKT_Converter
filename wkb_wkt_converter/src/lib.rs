@@ -105,8 +105,9 @@ pub fn text_to_wkb(text: &str, srid: SridMode) -> Result<Vec<u8>> {
 /// `normalize_wkt` controls whether WKT input is normalised (canonical casing,
 /// spacing, and coordinate formatting) via a round-trip through WKB.  Pass
 /// `false` to skip normalisation and return the WKT as-is (only the SRID prefix
-/// is adjusted), which avoids the encoding overhead.  Has no effect when the
-/// input is hex WKB, which is always decoded to normalised WKT.
+/// is adjusted), which avoids the encoding overhead.  **When `false`, WKT input
+/// is not validated — malformed WKT is returned without error.**  Has no effect
+/// when the input is hex WKB, which is always decoded to normalised WKT.
 pub fn text_to_wkt(text: &str, srid: SridMode, normalize_wkt: bool) -> Result<String> {
     let trimmed = text.trim();
 
