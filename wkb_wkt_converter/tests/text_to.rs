@@ -410,4 +410,12 @@ fn wkt_no_normalize_hex_start_non_hex_body_returned_as_is() {
         text_to_wkt("0XTEST", SridMode::Auto, false).unwrap(),
         "0XTEST"
     );
+    assert_eq!(
+        text_to_wkt("0XTEST", SridMode::Strip, false).unwrap(),
+        "0XTEST"
+    );
+    assert_eq!(
+        text_to_wkt("0XTEST", SridMode::Set(4326), false).unwrap(),
+        "SRID=4326;0XTEST"
+    );
 }

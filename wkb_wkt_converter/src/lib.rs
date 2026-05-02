@@ -358,3 +358,22 @@ fn try_set_srid_in_le_wkb(bytes: &[u8], srid: u32) -> Option<Vec<u8>> {
         Some(out)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hex_nibble_lut_spot_check() {
+        // Call build_hex_nibble_lut() at runtime so llvm-cov instruments it.
+        let lut = build_hex_nibble_lut();
+        assert_eq!(lut[b'0' as usize], 0);
+        assert_eq!(lut[b'9' as usize], 9);
+        assert_eq!(lut[b'a' as usize], 10);
+        assert_eq!(lut[b'f' as usize], 15);
+        assert_eq!(lut[b'A' as usize], 10);
+        assert_eq!(lut[b'F' as usize], 15);
+        assert_eq!(lut[b'G' as usize], 0xFF);
+        assert_eq!(lut[b' ' as usize], 0xFF);
+    }
+}
