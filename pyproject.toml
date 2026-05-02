@@ -19,5 +19,8 @@ features = ["pyo3/extension-module"]
 module-name = "wkb_wkt_converter"
 manifest-path = "wkb_wkt_converter_py/Cargo.toml"
 
+[project.optional-dependencies]
+benchmark = ["pytest-benchmark", "shapely"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
