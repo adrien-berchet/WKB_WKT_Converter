@@ -100,12 +100,19 @@ fn text_to_wkb(text: &str, srid: Option<Bound<'_, PyAny>>) -> PyResult<Vec<u8>> 
 }
 
 /// Converts a WKT/EWKT string or a hex-encoded WKB/EWKB string to a WKT string.
-/// The input format is detected automatically; WKT input is normalised.
+/// The input format is detected automatically.
 ///
 /// *srid* controls SRID handling in the output:
 /// - ``None`` (default): mirror the input — ``SRID=N;`` prefix kept if present, absent if not.
 /// - ``False``: always strip the ``SRID=N;`` prefix from the output.
 /// - integer: always prepend ``SRID=N;``, overriding whatever the input contains.
+///
+/// *normalize_wkt* (default ``False``): when ``True``, WKT input is normalised
+/// (canonical casing, spacing, coordinate formatting) via a round-trip through
+/// WKB.  When ``False``, WKT input is returned as-is (only the SRID prefix is
+/// adjusted) — **no validation is performed and malformed WKT is returned
+/// without raising an error.**  Hex WKB input is always decoded to normalised
+/// WKT regardless of this flag.
 #[pyfunction]
 #[pyo3(signature = (text, srid=None, normalize_wkt=false))]
 fn text_to_wkt(
