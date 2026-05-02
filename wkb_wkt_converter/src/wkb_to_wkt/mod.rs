@@ -1,6 +1,8 @@
 mod builder;
 mod reader;
 
+use std::fmt::Write as _;
+
 use crate::error::Result;
 
 pub(crate) fn convert(wkb: &[u8]) -> Result<String> {
@@ -9,8 +11,7 @@ pub(crate) fn convert(wkb: &[u8]) -> Result<String> {
     let srid = reader.read_geometry(&mut builder)?;
     if let Some(srid) = srid {
         let body = builder.finish();
-        let mut out = String::with_capacity(10 + body.len());
-        use std::fmt::Write as _;
+        let mut out = String::with_capacity(16 + body.len());
         write!(out, "SRID={srid};").unwrap();
         out.push_str(&body);
         return Ok(out);
