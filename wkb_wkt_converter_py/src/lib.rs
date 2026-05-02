@@ -10,7 +10,7 @@ fn to_py_err(e: core::Error) -> PyErr {
     PyValueError::new_err(e.to_string())
 }
 
-/// Maps the Python `srid` argument (`None`, `False`, or a positive integer) to
+/// Maps the Python `srid` argument (`None`, `False`, or a non-negative integer) to
 /// a [`core::SridMode`].  `True` is rejected with a clear error message.
 fn parse_srid_arg(val: Option<Bound<'_, PyAny>>) -> PyResult<core::SridMode> {
     match val {

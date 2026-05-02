@@ -43,8 +43,10 @@ pub fn hex_wkb_to_wkt(hex: &str) -> Result<String> {
 }
 
 /// Controls SRID handling in the output of [`text_to_wkb`] and [`text_to_wkt`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SridMode {
     /// Mirror the input: SRID is kept if present, absent if not.
+    #[default]
     Auto,
     /// Always strip any SRID from the output.
     Strip,
