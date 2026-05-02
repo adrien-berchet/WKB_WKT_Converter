@@ -353,6 +353,12 @@ fn srid_missing_integer_errors() {
     assert!(wkt_to_wkb("SRID=;POINT (1 2)").is_err());
 }
 
+#[test]
+fn srid_overflow_errors() {
+    // Value exceeds u32::MAX — triggers the integer-out-of-range error path
+    assert!(wkt_to_wkb("SRID=9999999999;POINT (1 2)").is_err());
+}
+
 // ── Tokenizer edge cases ──────────────────────────────────────────────────────
 
 #[test]

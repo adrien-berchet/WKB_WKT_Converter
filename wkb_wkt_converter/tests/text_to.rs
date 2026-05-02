@@ -1,6 +1,7 @@
 /// Tests for the generic text_to_wkb / text_to_wkt / text_to_hex_wkb helpers.
 use wkb_wkt_converter::{
-    text_to_hex_wkb, text_to_wkb, text_to_wkt, wkb_to_wkt, wkt_to_hex_wkb, wkt_to_wkb, SridMode,
+    hex_wkb_to_wkt, text_to_hex_wkb, text_to_wkb, text_to_wkt, wkb_to_wkt, wkt_to_hex_wkb,
+    wkt_to_wkb, SridMode,
 };
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -117,6 +118,30 @@ fn empty_string_errors() {
     assert!(text_to_wkb("", SridMode::Auto).is_err());
     assert!(text_to_wkt("", SridMode::Auto, true).is_err());
     assert!(text_to_hex_wkb("", SridMode::Auto).is_err());
+}
+
+#[test]
+fn decode_hex_lowercase_accepted() {
+    // parse_hex_nibble must handle b'a'..=b'f'
+    let lower = hex("POINT (1 2)").to_lowercase();
+    let via_lower = text_to_wkb(&lower, SridMode::Auto).unwrap();
+    assert_eq!(via_lower, wkt_to_wkb("POINT (1 2)").unwrap());
+}
+
+#[test]
+fn decode_hex_invalid_low_nibble_errors() {
+    // '0' is a valid high nibble; 'Z' is an invalid low nibble.
+    // Must bypass is_hex_str by calling hex_wkb_to_wkt directly.
+    assert!(hex_wkb_to_wkt("0Z").is_err());
+}
+
+#[test]
+fn strip_ewkt_prefix_no_semicolon_returns_unchanged() {
+    // "SRID=" present but no semicolon → strip_ewkt_prefix falls through unchanged
+    assert_eq!(
+        text_to_wkt("SRID=4326POINT (1 2)", SridMode::Strip, false).unwrap(),
+        "SRID=4326POINT (1 2)"
+    );
 }
 
 #[test]
