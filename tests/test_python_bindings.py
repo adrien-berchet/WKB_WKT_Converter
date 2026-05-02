@@ -285,7 +285,7 @@ def test_text_to_wkt_roundtrip_from_hex(wkt):
 
 def test_text_to_wkt_invalid_raises_value_error():
     with pytest.raises(ValueError):
-        m.text_to_wkt("NOT_A_GEOMETRY (1 2)")
+        m.text_to_wkt("NOT_A_GEOMETRY (1 2)", normalize_wkt=True)
 
 
 def test_text_to_wkt_srid_none_is_default():
