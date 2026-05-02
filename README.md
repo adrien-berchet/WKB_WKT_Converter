@@ -177,7 +177,7 @@ from wkb_wkt_converter import (
 | `wkt_to_hex_wkb(wkt)` | `str` | `str` |
 | `hex_wkb_to_wkt(hex_wkb)` | `str` | `str` |
 
-All functions raise `ValueError` on invalid input.
+All functions above raise `ValueError` on invalid input. (See `text_to_wkt` below for an exception when `normalize_wkt=False`.)
 
 #### Generic converters
 
