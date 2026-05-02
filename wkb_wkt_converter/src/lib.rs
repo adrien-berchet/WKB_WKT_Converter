@@ -4,6 +4,8 @@ pub mod types;
 mod wkb_to_wkt;
 mod wkt_to_wkb;
 
+use std::borrow::Cow;
+
 use types::EWKB_SRID;
 
 pub use error::{Error, Result};
@@ -79,13 +81,13 @@ pub fn text_to_wkb(text: &str, srid: SridMode) -> Result<Vec<u8>> {
         }
         SridMode::Strip => {
             if let Some(bytes) = try_decode_hex(trimmed) {
-                if let Some(out) = try_strip_srid_from_le_wkb(&bytes) {
-                    Ok(out)
-                } else {
-                    // Big-endian or malformed: fall back to full round-trip which
-                    // normalises byte order and validates structure.
-                    let (wkt, _) = wkb_to_wkt_split_srid(&bytes)?;
-                    wkt_to_wkb(&wkt)
+                match try_strip_srid_from_le_wkb(&bytes) {
+                    Some(Cow::Borrowed(_)) => Ok(bytes),   // no SRID — decoded bytes are already correct
+                    Some(Cow::Owned(out)) => Ok(out),
+                    None => {
+                        let (wkt, _) = wkb_to_wkt_split_srid(&bytes)?;
+                        wkt_to_wkb(&wkt)
+                    }
                 }
             } else {
                 wkt_to_wkb_split_srid(trimmed).map(|(b, _)| b)
@@ -93,11 +95,13 @@ pub fn text_to_wkb(text: &str, srid: SridMode) -> Result<Vec<u8>> {
         }
         SridMode::Set(srid_val) => {
             if let Some(bytes) = try_decode_hex(trimmed) {
-                if let Some(out) = try_set_srid_in_le_wkb(&bytes, srid_val) {
-                    Ok(out)
-                } else {
-                    let (wkt, _) = wkb_to_wkt_split_srid(&bytes)?;
-                    wkt_to_wkb(&format!("SRID={srid_val};{wkt}"))
+                match try_set_srid_in_le_wkb(&bytes, srid_val) {
+                    Some(Cow::Borrowed(_)) => Ok(bytes),   // SRID already correct
+                    Some(Cow::Owned(out)) => Ok(out),
+                    None => {
+                        let (wkt, _) = wkb_to_wkt_split_srid(&bytes)?;
+                        wkt_to_wkb(&format!("SRID={srid_val};{wkt}"))
+                    }
                 }
             } else {
                 wkt_to_wkb(&format!("SRID={srid_val};{}", strip_ewkt_prefix(trimmed)))
@@ -127,6 +131,9 @@ pub fn text_to_wkb(text: &str, srid: SridMode) -> Result<Vec<u8>> {
 /// the input is hex WKB, which is always decoded to normalised WKT.
 pub fn text_to_wkt(text: &str, srid: SridMode, normalize_wkt: bool) -> Result<String> {
     let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Err(Error::InvalidWkt("empty input".into()));
+    }
 
     // Fast path for WKT input with normalisation disabled.
     // All valid WKT geometry type keywords (POINT, LINESTRING, …) and the
@@ -196,6 +203,10 @@ pub fn text_to_wkt(text: &str, srid: SridMode, normalize_wkt: bool) -> Result<St
 /// The input format is detected automatically.
 ///
 /// `srid` controls SRID handling in the output — see [`SridMode`].
+///
+/// **Note:** for lowercase hex input under [`SridMode::Auto`], the output is
+/// the uppercase re-encoding of the decoded bytes (not identical to the input
+/// hex string).
 pub fn text_to_hex_wkb(text: &str, srid: SridMode) -> Result<String> {
     text_to_wkb(text, srid).map(|b| encode_hex(&b))
 }
@@ -277,30 +288,31 @@ fn try_decode_hex(s: &str) -> Option<Vec<u8>> {
 /// Used by [`hex_wkb_to_wkt`] where the caller knows the input must be hex.
 fn decode_hex(hex: &str) -> Result<Vec<u8>> {
     let bytes = hex.as_bytes();
+    if bytes.is_empty() {
+        return Err(Error::InvalidWkb("empty hex string".into()));
+    }
     if !bytes.len().is_multiple_of(2) {
         return Err(Error::InvalidWkb("hex string has odd length".into()));
     }
-    bytes
-        .chunks(2)
-        .enumerate()
-        .map(|(idx, pair)| {
-            let hi = HEX_NIBBLE_LUT[pair[0] as usize];
-            if hi > 0x0F {
-                return Err(Error::InvalidWkb(format!(
-                    "invalid hex digit at position {}",
-                    idx * 2
-                )));
-            }
-            let lo = HEX_NIBBLE_LUT[pair[1] as usize];
-            if lo > 0x0F {
-                return Err(Error::InvalidWkb(format!(
-                    "invalid hex digit at position {}",
-                    idx * 2 + 1
-                )));
-            }
-            Ok((hi << 4) | lo)
-        })
-        .collect()
+    let mut out = Vec::with_capacity(bytes.len() / 2);
+    for (i, chunk) in bytes.chunks_exact(2).enumerate() {
+        let hi = HEX_NIBBLE_LUT[chunk[0] as usize];
+        if hi > 0x0F {
+            return Err(Error::InvalidWkb(format!(
+                "invalid hex digit at position {}",
+                i * 2
+            )));
+        }
+        let lo = HEX_NIBBLE_LUT[chunk[1] as usize];
+        if lo > 0x0F {
+            return Err(Error::InvalidWkb(format!(
+                "invalid hex digit at position {}",
+                i * 2 + 1
+            )));
+        }
+        out.push((hi << 4) | lo);
+    }
+    Ok(out)
 }
 
 /// Strip the SRID from a little-endian EWKB byte slice without parsing
@@ -310,14 +322,20 @@ fn decode_hex(hex: &str) -> Result<Vec<u8>> {
 /// (too short, big-endian marker, or SRID flag set but fewer than 9 bytes
 /// available).  The caller should then fall back to a full WKB→WKT→WKB
 /// round-trip, which handles big-endian input and normalises to LE output.
-fn try_strip_srid_from_le_wkb(bytes: &[u8]) -> Option<Vec<u8>> {
+///
+/// # Limitations
+///
+/// Only the outermost WKB header is inspected; sub-geometries that embed their
+/// own EWKB SRID headers (rare in practice) will have those inner SRIDs left
+/// untouched.
+fn try_strip_srid_from_le_wkb(bytes: &[u8]) -> Option<Cow<'_, [u8]>> {
     if bytes.len() < 5 || bytes[0] != 1 {
         return None;
     }
     let type_u32 = u32::from_le_bytes(bytes[1..5].try_into().unwrap());
     if type_u32 & EWKB_SRID == 0 {
-        // No SRID present — return a copy unchanged.
-        return Some(bytes.to_vec());
+        // No SRID present — return a borrow of the input unchanged.
+        return Some(Cow::Borrowed(bytes));
     }
     if bytes.len() < 9 {
         return None;
@@ -327,26 +345,36 @@ fn try_strip_srid_from_le_wkb(bytes: &[u8]) -> Option<Vec<u8>> {
     out.push(1u8); // little-endian marker
     out.extend_from_slice(&new_type.to_le_bytes());
     out.extend_from_slice(&bytes[9..]); // skip the 4 SRID bytes
-    Some(out)
+    Some(Cow::Owned(out))
 }
 
 /// Inject or replace the SRID in a little-endian EWKB byte slice without
 /// parsing coordinates.
 ///
 /// Returns `None` under the same conditions as [`try_strip_srid_from_le_wkb`].
-fn try_set_srid_in_le_wkb(bytes: &[u8], srid: u32) -> Option<Vec<u8>> {
+///
+/// # Limitations
+///
+/// Only the outermost WKB header is inspected; sub-geometries that embed their
+/// own EWKB SRID headers (rare in practice) will have those inner SRIDs left
+/// untouched.
+fn try_set_srid_in_le_wkb(bytes: &[u8], srid: u32) -> Option<Cow<'_, [u8]>> {
     if bytes.len() < 5 || bytes[0] != 1 {
         return None;
     }
     let type_u32 = u32::from_le_bytes(bytes[1..5].try_into().unwrap());
     if type_u32 & EWKB_SRID != 0 {
-        // SRID already present — overwrite it in-place.
+        // SRID already present — check if it already equals the requested SRID.
         if bytes.len() < 9 {
             return None;
         }
+        let stored_srid = u32::from_le_bytes(bytes[5..9].try_into().unwrap());
+        if stored_srid == srid {
+            return Some(Cow::Borrowed(bytes));
+        }
         let mut out = bytes.to_vec();
         out[5..9].copy_from_slice(&srid.to_le_bytes());
-        Some(out)
+        Some(Cow::Owned(out))
     } else {
         // No SRID yet — insert 4 bytes after the type code and set the flag.
         let new_type = type_u32 | EWKB_SRID;
@@ -355,7 +383,7 @@ fn try_set_srid_in_le_wkb(bytes: &[u8], srid: u32) -> Option<Vec<u8>> {
         out.extend_from_slice(&new_type.to_le_bytes());
         out.extend_from_slice(&srid.to_le_bytes());
         out.extend_from_slice(&bytes[5..]);
-        Some(out)
+        Some(Cow::Owned(out))
     }
 }
 

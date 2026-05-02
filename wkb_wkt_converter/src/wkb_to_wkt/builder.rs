@@ -5,8 +5,8 @@ pub(super) struct WktBuilder {
 }
 
 impl WktBuilder {
-    pub fn new() -> Self {
-        Self { buf: String::new() }
+    pub fn with_capacity(n: usize) -> Self {
+        Self { buf: String::with_capacity(n) }
     }
 
     pub fn finish(self) -> String {

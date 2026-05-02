@@ -13,6 +13,15 @@ const BE_POINT_HEX: &str = "00000000013FF00000000000004000000000000000";
 // malformed-WKB fallback path.
 const LE_SHORT_SRID_HEX: &str = "0103000020";
 
+// Uppercase hex-encoded little-endian WKB for POINT (1 2) without SRID.
+// byte-order=0x01, type=0x00000001 (LE), X=1.0 (LE f64), Y=2.0 (LE f64).
+const POINT_HEX: &str = "0101000000000000000000F03F0000000000000040";
+
+// Uppercase hex-encoded little-endian EWKB for SRID=4326;POINT (1 2).
+// byte-order=0x01, type=0x20000001 (LE, SRID flag), SRID=4326 (LE u32),
+// X=1.0 (LE f64), Y=2.0 (LE f64).
+const SRID_POINT_HEX: &str = "0101000020E6100000000000000000F03F0000000000000040";
+
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 fn hex(wkt: &str) -> String {
@@ -127,6 +136,7 @@ fn empty_string_errors() {
     assert!(text_to_wkb("", SridMode::Auto).is_err());
     assert!(text_to_wkt("", SridMode::Auto, true).is_err());
     assert!(text_to_hex_wkb("", SridMode::Auto).is_err());
+    assert!(text_to_wkt("", SridMode::Auto, false).is_err());
 }
 
 #[test]
@@ -418,4 +428,39 @@ fn wkt_no_normalize_hex_start_non_hex_body_returned_as_is() {
         text_to_wkt("0XTEST", SridMode::Set(4326), false).unwrap(),
         "SRID=4326;0XTEST"
     );
+}
+
+// ── new tests for Change 2–5 ──────────────────────────────────────────────────
+
+#[test]
+fn decode_hex_empty_string_errors() {
+    assert!(hex_wkb_to_wkt("").is_err());
+}
+
+#[test]
+fn auto_be_hex_input_returned_as_be_bytes() {
+    // Big-endian WKB passes through SridMode::Auto without normalisation.
+    // The first byte of the result must be 0x00 (big-endian byte-order marker).
+    let result = text_to_wkb(BE_POINT_HEX, SridMode::Auto).unwrap();
+    assert_eq!(result[0], 0x00, "expected big-endian marker byte 0x00");
+}
+
+#[test]
+fn text_to_hex_wkb_lowercase_hex_normalised_to_uppercase() {
+    // Lowercase hex input under SridMode::Auto is decoded and re-encoded as
+    // uppercase — the output must equal the known uppercase constant.
+    let lowercase = POINT_HEX.to_lowercase();
+    let result = text_to_hex_wkb(&lowercase, SridMode::Auto).unwrap();
+    assert_eq!(result, POINT_HEX);
+}
+
+#[test]
+fn set_srid_noop_when_srid_already_matches() {
+    // Calling text_to_wkb with SridMode::Set(4326) on hex EWKB that already
+    // has SRID=4326 should return the same WKB bytes (Cow::Borrowed fast path).
+    let input_bytes = hex::decode(SRID_POINT_HEX).unwrap();
+    let result = text_to_wkb(SRID_POINT_HEX, SridMode::Set(4326)).unwrap();
+    assert_eq!(result, input_bytes);
+    // Verify the round-trip still produces the correct WKT.
+    assert_eq!(wkb_to_wkt(&result).unwrap(), "SRID=4326;POINT (1 2)");
 }

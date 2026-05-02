@@ -142,15 +142,16 @@ impl<'a> WkbReader<'a> {
 
     fn read_point_body(&mut self, out: &mut WktBuilder, dim: Dimension) -> Result<()> {
         let n = dim.coord_size();
-        let mut coords = Vec::with_capacity(n);
-        for _ in 0..n {
-            coords.push(self.read_f64()?);
+        let mut coords = [0f64; 4];
+        for item in coords.iter_mut().take(n) {
+            *item = self.read_f64()?;
         }
+        let coords = &coords[..n];
         if coords.iter().all(|v| v.is_nan()) {
             out.push_str(" EMPTY");
         } else {
             out.push_str(" (");
-            out.push_coord(&coords);
+            out.push_coord(coords);
             out.push_char(')');
         }
         Ok(())
@@ -209,15 +210,16 @@ impl<'a> WkbReader<'a> {
                 )));
             }
             let n = dim.coord_size();
-            let mut coords = Vec::with_capacity(n);
-            for _ in 0..n {
-                coords.push(self.read_f64()?);
+            let mut coords = [0f64; 4];
+            for item in coords.iter_mut().take(n) {
+                *item = self.read_f64()?;
             }
+            let coords = &coords[..n];
             if coords.iter().all(|v| v.is_nan()) {
                 out.push_str("EMPTY");
             } else {
                 out.push_char('(');
-                out.push_coord(&coords);
+                out.push_coord(coords);
                 out.push_char(')');
             }
         }
