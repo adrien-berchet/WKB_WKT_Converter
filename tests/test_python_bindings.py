@@ -341,6 +341,46 @@ def test_text_to_wkt_srid_true_raises_value_error():
         m.text_to_wkt("POINT (1 2)", srid=True)
 
 
+# ── text_to_wkt: normalize_wkt parameter ─────────────────────────────────────
+
+def test_text_to_wkt_normalize_wkt_true_is_default():
+    assert m.text_to_wkt("point(1 2)") == m.text_to_wkt("point(1 2)", normalize_wkt=True)
+
+
+def test_text_to_wkt_normalize_wkt_true_normalises_casing():
+    assert m.text_to_wkt("point(1 2)", normalize_wkt=True) == "POINT (1 2)"
+
+
+def test_text_to_wkt_normalize_wkt_false_returns_wkt_as_is():
+    assert m.text_to_wkt("point(1 2)", normalize_wkt=False) == "point(1 2)"
+
+
+def test_text_to_wkt_normalize_wkt_false_auto_preserves_srid_prefix():
+    assert m.text_to_wkt("SRID=4326;POINT (1 2)", normalize_wkt=False) == "SRID=4326;POINT (1 2)"
+
+
+def test_text_to_wkt_normalize_wkt_false_strip_removes_srid_prefix():
+    assert m.text_to_wkt("SRID=4326;POINT (1 2)", srid=False, normalize_wkt=False) == "POINT (1 2)"
+
+
+def test_text_to_wkt_normalize_wkt_false_strip_noop_when_no_srid():
+    assert m.text_to_wkt("POINT (1 2)", srid=False, normalize_wkt=False) == "POINT (1 2)"
+
+
+def test_text_to_wkt_normalize_wkt_false_set_adds_srid_prefix():
+    assert m.text_to_wkt("POINT (1 2)", srid=4326, normalize_wkt=False) == "SRID=4326;POINT (1 2)"
+
+
+def test_text_to_wkt_normalize_wkt_false_set_overrides_srid_prefix():
+    assert m.text_to_wkt("SRID=4326;POINT (1 2)", srid=3857, normalize_wkt=False) == "SRID=3857;POINT (1 2)"
+
+
+def test_text_to_wkt_normalize_wkt_false_hex_input_still_normalises():
+    # normalize_wkt has no effect on hex WKB input; output is always normalised.
+    hex_wkb = m.wkt_to_hex_wkb("POINT (1 2)")
+    assert m.text_to_wkt(hex_wkb, normalize_wkt=False) == "POINT (1 2)"
+
+
 # ── text_to_hex_wkb ───────────────────────────────────────────────────────────
 
 def test_text_to_hex_wkb_from_wkt_returns_uppercase_str():

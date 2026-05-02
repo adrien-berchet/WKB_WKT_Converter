@@ -66,7 +66,7 @@ characters is treated as hex WKB; anything else as WKT).
 
 ```rust
 pub fn text_to_wkb(text: &str, srid: SridMode) -> Result<Vec<u8>>
-pub fn text_to_wkt(text: &str, srid: SridMode) -> Result<String>
+pub fn text_to_wkt(text: &str, srid: SridMode, normalize_wkt: bool) -> Result<String>
 pub fn text_to_hex_wkb(text: &str, srid: SridMode) -> Result<String>
 ```
 
@@ -78,8 +78,11 @@ pub fn text_to_hex_wkb(text: &str, srid: SridMode) -> Result<String>
 | `SridMode::Strip` | Always strip the SRID from the output |
 | `SridMode::Set(n)` | Always embed SRID `n`, overriding whatever the input contains |
 
-`text_to_wkt` also **normalises** WKT input (casing, whitespace) via a
-round-trip through WKB.
+`text_to_wkt` also accepts a `normalize_wkt: bool` parameter (default `true`).
+When `true`, WKT input is normalised (canonical casing, spacing, coordinate
+formatting) via a round-trip through WKB.  When `false`, WKT input is returned
+as-is (only the SRID prefix is manipulated), which avoids the encoding overhead.
+Hex WKB input is always decoded to normalised WKT regardless of this flag.
 
 ### Example
 
@@ -183,7 +186,7 @@ WKB/EWKB string and detect the format automatically.
 | Function | Output |
 |---|---|
 | `text_to_wkb(text, srid=None)` | `bytes` |
-| `text_to_wkt(text, srid=None)` | `str` |
+| `text_to_wkt(text, srid=None, normalize_wkt=True)` | `str` |
 | `text_to_hex_wkb(text, srid=None)` | `str` |
 
 The `srid` keyword argument controls SRID handling in the output:
@@ -194,8 +197,11 @@ The `srid` keyword argument controls SRID handling in the output:
 | `False` | Always strip the SRID from the output |
 | `int` | Always embed this SRID, overriding whatever the input contains |
 
-`text_to_wkt` also **normalises** WKT input (casing, whitespace) via a
-round-trip through WKB.
+`text_to_wkt` also accepts a `normalize_wkt` keyword argument (default `True`).
+When `True`, WKT input is normalised (canonical casing, spacing, coordinate
+formatting) via a round-trip through WKB.  When `False`, WKT input is returned
+as-is (only the SRID prefix is manipulated), which avoids the encoding overhead.
+Hex WKB input is always decoded to normalised WKT regardless of this flag.
 
 ### Example
 

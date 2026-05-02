@@ -93,14 +93,33 @@ pub fn text_to_wkb(text: &str, srid: SridMode) -> Result<Vec<u8>> {
 ///
 /// The input format is detected automatically: a string composed entirely of
 /// hexadecimal characters is treated as hex WKB; anything else is treated as
-/// WKT (and is normalised by a round-trip through WKB).
+/// WKT.
 ///
 /// `srid` controls SRID handling in the output:
 /// - [`SridMode::Auto`] (default): mirror the input — `SRID=N;` prefix kept if present.
 /// - [`SridMode::Strip`]: always strip the `SRID=N;` prefix from the output.
 /// - [`SridMode::Set(n)`]: always prepend `SRID=n;`, overriding any SRID in the input.
-pub fn text_to_wkt(text: &str, srid: SridMode) -> Result<String> {
+///
+/// `normalize_wkt` controls whether WKT input is normalised (canonical casing,
+/// spacing, and coordinate formatting) via a round-trip through WKB.  Has no
+/// effect when the input is hex WKB, which is always decoded to normalised WKT.
+/// Defaults to `true`.
+pub fn text_to_wkt(text: &str, srid: SridMode, normalize_wkt: bool) -> Result<String> {
     let trimmed = text.trim();
+
+    // Fast path: WKT input with normalisation disabled — manipulate the SRID
+    // prefix directly without parsing or re-encoding the geometry.
+    if !normalize_wkt && !is_hex_str(trimmed) {
+        return Ok(match srid {
+            SridMode::Auto => trimmed.to_owned(),
+            SridMode::Strip => strip_ewkt_prefix(trimmed).to_owned(),
+            SridMode::Set(srid_val) => {
+                format!("SRID={srid_val};{}", strip_ewkt_prefix(trimmed))
+            }
+        });
+    }
+
+    // Normalising path (always used for hex input; used for WKT when normalize_wkt=true).
     match srid {
         SridMode::Auto => {
             if is_hex_str(trimmed) {
@@ -145,6 +164,15 @@ fn plain_wkt_from(trimmed: &str) -> Result<String> {
         let (wkb, _) = wkt_to_wkb_split_srid(trimmed)?;
         wkb_to_wkt(&wkb)
     }
+}
+
+fn strip_ewkt_prefix(wkt: &str) -> &str {
+    if wkt.len() >= 5 && wkt[..5].eq_ignore_ascii_case("SRID=") {
+        if let Some(pos) = wkt.find(';') {
+            return wkt[pos + 1..].trim_start();
+        }
+    }
+    wkt
 }
 
 fn encode_hex(bytes: &[u8]) -> String {

@@ -115,7 +115,7 @@ fn wkb_set_overrides_srid_in_hex_ewkb() {
 #[test]
 fn wkt_from_wkt_normalises_casing_and_spacing() {
     assert_eq!(
-        text_to_wkt("point(1 2)", SridMode::Auto).unwrap(),
+        text_to_wkt("point(1 2)", SridMode::Auto, true).unwrap(),
         "POINT (1 2)"
     );
 }
@@ -124,7 +124,7 @@ fn wkt_from_wkt_normalises_casing_and_spacing() {
 fn wkt_from_hex_wkb_roundtrip() {
     let h = hex("LINESTRING (0 0, 1 1)");
     assert_eq!(
-        text_to_wkt(&h, SridMode::Auto).unwrap(),
+        text_to_wkt(&h, SridMode::Auto, true).unwrap(),
         "LINESTRING (0 0, 1 1)"
     );
 }
@@ -134,7 +134,7 @@ fn wkt_from_hex_wkb_roundtrip() {
 #[test]
 fn wkt_auto_preserves_srid_from_ewkt() {
     assert_eq!(
-        text_to_wkt("SRID=4326;POINT (1 2)", SridMode::Auto).unwrap(),
+        text_to_wkt("SRID=4326;POINT (1 2)", SridMode::Auto, true).unwrap(),
         "SRID=4326;POINT (1 2)"
     );
 }
@@ -142,7 +142,7 @@ fn wkt_auto_preserves_srid_from_ewkt() {
 #[test]
 fn wkt_auto_preserves_no_srid_from_wkt() {
     assert_eq!(
-        text_to_wkt("POINT (1 2)", SridMode::Auto).unwrap(),
+        text_to_wkt("POINT (1 2)", SridMode::Auto, true).unwrap(),
         "POINT (1 2)"
     );
 }
@@ -151,7 +151,7 @@ fn wkt_auto_preserves_no_srid_from_wkt() {
 fn wkt_auto_preserves_srid_from_hex_ewkb() {
     let h = hex("SRID=4326;POINT (1 2)");
     assert_eq!(
-        text_to_wkt(&h, SridMode::Auto).unwrap(),
+        text_to_wkt(&h, SridMode::Auto, true).unwrap(),
         "SRID=4326;POINT (1 2)"
     );
 }
@@ -161,7 +161,7 @@ fn wkt_auto_preserves_srid_from_hex_ewkb() {
 #[test]
 fn wkt_strip_removes_srid_from_ewkt() {
     assert_eq!(
-        text_to_wkt("SRID=4326;POINT (1 2)", SridMode::Strip).unwrap(),
+        text_to_wkt("SRID=4326;POINT (1 2)", SridMode::Strip, true).unwrap(),
         "POINT (1 2)"
     );
 }
@@ -169,7 +169,10 @@ fn wkt_strip_removes_srid_from_ewkt() {
 #[test]
 fn wkt_strip_removes_srid_from_hex_ewkb() {
     let h = hex("SRID=4326;POINT (1 2)");
-    assert_eq!(text_to_wkt(&h, SridMode::Strip).unwrap(), "POINT (1 2)");
+    assert_eq!(
+        text_to_wkt(&h, SridMode::Strip, true).unwrap(),
+        "POINT (1 2)"
+    );
 }
 
 // ── text_to_wkt: SridMode::Set ───────────────────────────────────────────────
@@ -177,7 +180,7 @@ fn wkt_strip_removes_srid_from_hex_ewkb() {
 #[test]
 fn wkt_set_adds_srid_to_plain_wkt() {
     assert_eq!(
-        text_to_wkt("POINT (1 2)", SridMode::Set(4326)).unwrap(),
+        text_to_wkt("POINT (1 2)", SridMode::Set(4326), true).unwrap(),
         "SRID=4326;POINT (1 2)"
     );
 }
@@ -185,7 +188,7 @@ fn wkt_set_adds_srid_to_plain_wkt() {
 #[test]
 fn wkt_set_overrides_existing_srid_in_ewkt() {
     assert_eq!(
-        text_to_wkt("SRID=4326;POINT (1 2)", SridMode::Set(3857)).unwrap(),
+        text_to_wkt("SRID=4326;POINT (1 2)", SridMode::Set(3857), true).unwrap(),
         "SRID=3857;POINT (1 2)"
     );
 }
@@ -194,8 +197,68 @@ fn wkt_set_overrides_existing_srid_in_ewkt() {
 fn wkt_set_adds_srid_to_plain_hex_wkb() {
     let h = hex("POINT (1 2)");
     assert_eq!(
-        text_to_wkt(&h, SridMode::Set(4326)).unwrap(),
+        text_to_wkt(&h, SridMode::Set(4326), true).unwrap(),
         "SRID=4326;POINT (1 2)"
+    );
+}
+
+// ── text_to_wkt: normalize_wkt=false ─────────────────────────────────────────
+
+#[test]
+fn wkt_no_normalize_returns_wkt_as_is() {
+    assert_eq!(
+        text_to_wkt("point(1 2)", SridMode::Auto, false).unwrap(),
+        "point(1 2)"
+    );
+}
+
+#[test]
+fn wkt_no_normalize_auto_preserves_srid_prefix() {
+    assert_eq!(
+        text_to_wkt("SRID=4326;POINT (1 2)", SridMode::Auto, false).unwrap(),
+        "SRID=4326;POINT (1 2)"
+    );
+}
+
+#[test]
+fn wkt_no_normalize_strip_removes_srid_prefix() {
+    assert_eq!(
+        text_to_wkt("SRID=4326;POINT (1 2)", SridMode::Strip, false).unwrap(),
+        "POINT (1 2)"
+    );
+}
+
+#[test]
+fn wkt_no_normalize_strip_noop_when_no_srid() {
+    assert_eq!(
+        text_to_wkt("POINT (1 2)", SridMode::Strip, false).unwrap(),
+        "POINT (1 2)"
+    );
+}
+
+#[test]
+fn wkt_no_normalize_set_adds_srid_prefix() {
+    assert_eq!(
+        text_to_wkt("POINT (1 2)", SridMode::Set(4326), false).unwrap(),
+        "SRID=4326;POINT (1 2)"
+    );
+}
+
+#[test]
+fn wkt_no_normalize_set_overrides_existing_srid() {
+    assert_eq!(
+        text_to_wkt("SRID=4326;POINT (1 2)", SridMode::Set(3857), false).unwrap(),
+        "SRID=3857;POINT (1 2)"
+    );
+}
+
+#[test]
+fn wkt_no_normalize_hex_input_still_normalises() {
+    // normalize_wkt has no effect on hex WKB input; result is always normalised WKT.
+    let h = hex("POINT (1 2)");
+    assert_eq!(
+        text_to_wkt(&h, SridMode::Auto, false).unwrap(),
+        "POINT (1 2)"
     );
 }
 
