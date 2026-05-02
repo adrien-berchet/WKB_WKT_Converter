@@ -93,3 +93,35 @@ jobs:
 
       - name: Run Python tests
         run: pytest
+
+  coverage-python:
+    name: Coverage (Python bindings)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install maturin and pytest
+        run: pip install maturin pytest
+
+      - name: Build and test Python bindings with coverage
+        run: |
+          source <(cargo llvm-cov show-env --export-prefix)
+          maturin develop
+          pytest
+          cargo llvm-cov report --package wkb_wkt_converter_py --fail-under-lines 100

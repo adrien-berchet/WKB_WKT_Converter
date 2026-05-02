@@ -245,6 +245,11 @@ def test_text_to_wkb_srid_true_raises_value_error():
         m.text_to_wkb("POINT (1 2)", srid=True)
 
 
+def test_text_to_wkb_srid_invalid_type_raises_value_error():
+    with pytest.raises(ValueError, match="srid must be None, False, or a non-negative integer"):
+        m.text_to_wkb("POINT (1 2)", srid=3.14)
+
+
 # ── text_to_wkt ───────────────────────────────────────────────────────────────
 
 def test_text_to_wkt_from_wkt_returns_str():
