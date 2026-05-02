@@ -243,6 +243,164 @@ assert wkt == "POINT (1 2)"
 
 ---
 
+## Benchmarks
+
+Comparison against [shapely](https://github.com/shapely/shapely) 2.x.
+Regenerate with:
+
+```sh
+pip install ".[benchmark]"
+python scripts/update_readme_benchmarks.py
+# or, using an already-saved JSON:
+python scripts/update_readme_benchmarks.py --json benchmark_results.json
+```
+
+<!-- BENCHMARK_RESULTS_START -->
+
+*2026-05-02 — Python 3.11.15 — Intel(R) Xeon(R) Processor @ 2.10GHz*
+
+Times are mean latency per call (lower is better). Speedup = shapely mean ÷ wkb_wkt_converter mean.
+
+### Basic conversions
+
+#### `wkt_to_wkb`
+
+| Geometry | wkb_wkt_converter | shapely | Speedup |
+|:---|---:|---:|---:|
+| Point | 885 ns | 14.9 µs | 16.8× |
+| LineString (5 pts) | 1.5 µs | 24.9 µs | 17.0× |
+| Polygon (5 pts) | 1.9 µs | 31.7 µs | 17.1× |
+| GeometryCollection | 2.2 µs | 42.2 µs | 19.3× |
+| MultiPolygon | 2.4 µs | 25.6 µs | 10.5× |
+| LineString (1000 pts) | 91.4 µs | 539.8 µs | 5.9× |
+| Polygon (1000 pts) | 133.7 µs | 842.9 µs | 6.3× |
+
+#### `wkb_to_wkt`
+
+| Geometry | wkb_wkt_converter | shapely | Speedup |
+|:---|---:|---:|---:|
+| Point | 446 ns | 14.2 µs | 31.9× |
+| LineString (5 pts) | 1.2 µs | 15.9 µs | 13.7× |
+| Polygon (5 pts) | 1.1 µs | 19.4 µs | 17.0× |
+| GeometryCollection | 1.7 µs | 25.0 µs | 14.4× |
+| MultiPolygon | 2.5 µs | 17.7 µs | 7.1× |
+| LineString (1000 pts) | 90.7 µs | 298.8 µs | 3.3× |
+| Polygon (1000 pts) | 277.0 µs | 352.0 µs | 1.3× |
+
+#### `wkt_to_hex_wkb`
+
+| Geometry | wkb_wkt_converter | shapely | Speedup |
+|:---|---:|---:|---:|
+| Point | 1.6 µs | 19.5 µs | 12.1× |
+| LineString (5 pts) | 3.6 µs | 26.0 µs | 7.1× |
+| Polygon (5 pts) | 5.0 µs | 28.4 µs | 5.6× |
+| GeometryCollection | 7.9 µs | 46.9 µs | 6.0× |
+| MultiPolygon | 10.6 µs | 46.4 µs | 4.4× |
+| LineString (1000 pts) | 447.9 µs | 652.7 µs | 1.5× |
+| Polygon (1000 pts) | 440.8 µs | 1.1 ms | 2.5× |
+
+#### `hex_wkb_to_wkt`
+
+| Geometry | wkb_wkt_converter | shapely | Speedup |
+|:---|---:|---:|---:|
+| Point | 819 ns | 13.8 µs | 16.9× |
+| LineString (5 pts) | 1.9 µs | 19.2 µs | 10.0× |
+| Polygon (5 pts) | 1.7 µs | 21.8 µs | 12.8× |
+| GeometryCollection | 2.8 µs | 28.3 µs | 10.2× |
+| MultiPolygon | 4.3 µs | 24.9 µs | 5.9× |
+| LineString (1000 pts) | 169.0 µs | 364.9 µs | 2.2× |
+| Polygon (1000 pts) | 473.6 µs | 362.5 µs | 0.8× |
+
+### Generic `text_to_*` converters
+
+#### `text_to_wkb(wkt)`
+
+| Geometry | wkb_wkt_converter | shapely | Speedup |
+|:---|---:|---:|---:|
+| Point | 1.0 µs | 29.3 µs | 28.9× |
+| LineString (5 pts) | 1.4 µs | 29.1 µs | 20.9× |
+| Polygon (5 pts) | 1.2 µs | 35.3 µs | 30.4× |
+| GeometryCollection | 2.2 µs | 27.2 µs | 12.2× |
+| MultiPolygon | 2.6 µs | 48.5 µs | 19.0× |
+| LineString (1000 pts) | 84.6 µs | 628.6 µs | 7.4× |
+| Polygon (1000 pts) | 124.6 µs | 956.2 µs | 7.7× |
+
+#### `text_to_wkb(hex_wkb)`
+
+| Geometry | wkb_wkt_converter | shapely | Speedup |
+|:---|---:|---:|---:|
+| Point | 672 ns | 15.1 µs | 22.5× |
+| LineString (5 pts) | 1.3 µs | 18.2 µs | 13.7× |
+| Polygon (5 pts) | 1.3 µs | 30.1 µs | 22.6× |
+| GeometryCollection | 1.8 µs | 23.6 µs | 13.0× |
+| MultiPolygon | 2.6 µs | 18.4 µs | 7.1× |
+| LineString (1000 pts) | 96.7 µs | 116.2 µs | 1.2× |
+| Polygon (1000 pts) | 429.6 µs | 129.0 µs | 0.3× |
+
+#### `text_to_wkt(wkt)` — `normalize_wkt=False` (fast path, no WKB round-trip)
+
+| Geometry | wkb_wkt_converter |
+|:---|---:|
+| Point | 479 ns |
+| LineString (5 pts) | 141 ns |
+| Polygon (5 pts) | 377 ns |
+| GeometryCollection | 145 ns |
+| MultiPolygon | 447 ns |
+| LineString (1000 pts) | 1.4 µs |
+| Polygon (1000 pts) | 5.8 µs |
+
+#### `text_to_wkt(wkt)` — `normalize_wkt=True` (full WKT→WKB→WKT round-trip)
+
+| Geometry | wkb_wkt_converter | shapely | Speedup |
+|:---|---:|---:|---:|
+| Point | 1.0 µs | 31.5 µs | 31.1× |
+| LineString (5 pts) | 2.6 µs | 31.8 µs | 12.1× |
+| Polygon (5 pts) | 2.8 µs | 18.6 µs | 6.5× |
+| GeometryCollection | 4.0 µs | 23.9 µs | 6.0× |
+| MultiPolygon | 5.7 µs | 31.2 µs | 5.5× |
+| LineString (1000 pts) | 185.6 µs | 693.4 µs | 3.7× |
+| Polygon (1000 pts) | 387.5 µs | 909.9 µs | 2.3× |
+
+#### `text_to_wkt(hex_wkb)`
+
+| Geometry | wkb_wkt_converter | shapely | Speedup |
+|:---|---:|---:|---:|
+| Point | 983 ns | 16.2 µs | 16.5× |
+| LineString (5 pts) | 2.0 µs | 22.0 µs | 11.2× |
+| Polygon (5 pts) | 1.7 µs | 15.9 µs | 9.3× |
+| GeometryCollection | 3.1 µs | 23.4 µs | 7.6× |
+| MultiPolygon | 5.0 µs | 29.7 µs | 6.0× |
+| LineString (1000 pts) | 165.3 µs | 366.8 µs | 2.2× |
+| Polygon (1000 pts) | 644.1 µs | 411.9 µs | 0.6× |
+
+#### `text_to_hex_wkb(wkt)`
+
+| Geometry | wkb_wkt_converter | shapely | Speedup |
+|:---|---:|---:|---:|
+| Point | 1.6 µs | 21.9 µs | 13.9× |
+| LineString (5 pts) | 4.8 µs | 29.4 µs | 6.2× |
+| Polygon (5 pts) | 4.8 µs | 23.2 µs | 4.8× |
+| GeometryCollection | 7.4 µs | 31.6 µs | 4.3× |
+| MultiPolygon | 11.2 µs | 44.4 µs | 4.0× |
+| LineString (1000 pts) | 485.1 µs | 733.0 µs | 1.5× |
+| Polygon (1000 pts) | 457.5 µs | 994.6 µs | 2.2× |
+
+#### `text_to_hex_wkb(hex_wkb)`
+
+| Geometry | wkb_wkt_converter | shapely | Speedup |
+|:---|---:|---:|---:|
+| Point | 1.5 µs | 13.9 µs | 9.1× |
+| LineString (5 pts) | 4.5 µs | 13.6 µs | 3.0× |
+| Polygon (5 pts) | 4.3 µs | 14.5 µs | 3.4× |
+| GeometryCollection | 6.8 µs | 17.5 µs | 2.6× |
+| MultiPolygon | 9.5 µs | 15.5 µs | 1.6× |
+| LineString (1000 pts) | 546.2 µs | 145.2 µs | 0.3× |
+| Polygon (1000 pts) | 772.3 µs | 147.2 µs | 0.2× |
+
+<!-- BENCHMARK_RESULTS_END -->
+
+---
+
 ## Project layout
 
 ```
