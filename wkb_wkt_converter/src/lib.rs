@@ -227,6 +227,29 @@ fn encode_hex(bytes: &[u8]) -> String {
     unsafe { String::from_utf8_unchecked(out) }
 }
 
+/// 256-entry lookup table mapping ASCII bytes to their hex nibble value (0–15)
+/// or to 0xFF for invalid characters.  Built at compile time; a single array
+/// index replaces the 3-arm range match in the hot decode loop, eliminating
+/// branch mispredictions for inputs whose hex characters are not clustered in
+/// the '0'–'9' range (e.g. trig-value coordinates where A–F appear ~50 % of
+/// the time).
+const fn build_hex_nibble_lut() -> [u8; 256] {
+    let mut lut = [0xFF_u8; 256];
+    let mut i = 0u8;
+    while i <= 9 {
+        lut[(b'0' + i) as usize] = i;
+        i += 1;
+    }
+    let mut i = 0u8;
+    while i < 6 {
+        lut[(b'a' + i) as usize] = 10 + i;
+        lut[(b'A' + i) as usize] = 10 + i;
+        i += 1;
+    }
+    lut
+}
+static HEX_NIBBLE_LUT: [u8; 256] = build_hex_nibble_lut();
+
 /// Try to decode `s` as a hex string in a single pass, combining detection and
 /// decoding.
 ///
@@ -240,8 +263,11 @@ fn try_decode_hex(s: &str) -> Option<Vec<u8>> {
     }
     let mut out = Vec::with_capacity(bytes.len() / 2);
     for chunk in bytes.chunks_exact(2) {
-        let hi = parse_hex_nibble(chunk[0])?;
-        let lo = parse_hex_nibble(chunk[1])?;
+        let hi = HEX_NIBBLE_LUT[chunk[0] as usize];
+        let lo = HEX_NIBBLE_LUT[chunk[1] as usize];
+        if (hi | lo) > 0x0F {
+            return None;
+        }
         out.push((hi << 4) | lo);
     }
     Some(out)
@@ -258,24 +284,23 @@ fn decode_hex(hex: &str) -> Result<Vec<u8>> {
         .chunks(2)
         .enumerate()
         .map(|(idx, pair)| {
-            let hi = parse_hex_nibble(pair[0]).ok_or_else(|| {
-                Error::InvalidWkb(format!("invalid hex digit at position {}", idx * 2))
-            })?;
-            let lo = parse_hex_nibble(pair[1]).ok_or_else(|| {
-                Error::InvalidWkb(format!("invalid hex digit at position {}", idx * 2 + 1))
-            })?;
+            let hi = HEX_NIBBLE_LUT[pair[0] as usize];
+            if hi > 0x0F {
+                return Err(Error::InvalidWkb(format!(
+                    "invalid hex digit at position {}",
+                    idx * 2
+                )));
+            }
+            let lo = HEX_NIBBLE_LUT[pair[1] as usize];
+            if lo > 0x0F {
+                return Err(Error::InvalidWkb(format!(
+                    "invalid hex digit at position {}",
+                    idx * 2 + 1
+                )));
+            }
             Ok((hi << 4) | lo)
         })
         .collect()
-}
-
-fn parse_hex_nibble(b: u8) -> Option<u8> {
-    match b {
-        b'0'..=b'9' => Some(b - b'0'),
-        b'a'..=b'f' => Some(b - b'a' + 10),
-        b'A'..=b'F' => Some(b - b'A' + 10),
-        _ => None,
-    }
 }
 
 /// Strip the SRID from a little-endian EWKB byte slice without parsing
