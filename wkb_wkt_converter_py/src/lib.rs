@@ -109,10 +109,10 @@ fn text_to_wkb(text: &str, srid: Option<Bound<'_, PyAny>>) -> PyResult<Vec<u8>> 
 ///
 /// *normalize_wkt* (default ``False``): when ``True``, WKT input is normalised
 /// (canonical casing, spacing, coordinate formatting) via a round-trip through
-/// WKB.  When ``False``, WKT input is returned as-is (only the SRID prefix is
-/// adjusted) — **no validation is performed and malformed WKT is returned
-/// without raising an error.**  Hex WKB input is always decoded to normalised
-/// WKT regardless of this flag.
+/// WKB.  When ``False``, only the SRID prefix is adjusted — **no validation is
+/// performed and malformed WKT is returned without raising an error.**
+/// Leading/trailing whitespace is always stripped regardless of this flag.
+/// Hex WKB input is always decoded to normalised WKT regardless of this flag.
 #[pyfunction]
 #[pyo3(signature = (text, srid=None, normalize_wkt=false))]
 fn text_to_wkt(

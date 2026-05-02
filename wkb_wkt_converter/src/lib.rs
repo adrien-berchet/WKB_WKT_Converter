@@ -62,6 +62,7 @@ pub enum SridMode {
 ///
 /// `srid` controls SRID handling in the output:
 /// - [`SridMode::Auto`] (default): mirror the input — SRID kept if present, absent if not.
+///   When the input is hex WKB, the bytes are returned as-is without WKB structure validation.
 /// - [`SridMode::Strip`]: always strip the SRID from the output.
 /// - [`SridMode::Set(n)`]: always embed SRID `n`, overriding any SRID in the input.
 pub fn text_to_wkb(text: &str, srid: SridMode) -> Result<Vec<u8>> {
@@ -104,10 +105,11 @@ pub fn text_to_wkb(text: &str, srid: SridMode) -> Result<Vec<u8>> {
 ///
 /// `normalize_wkt` controls whether WKT input is normalised (canonical casing,
 /// spacing, and coordinate formatting) via a round-trip through WKB.  Pass
-/// `false` to skip normalisation and return the WKT as-is (only the SRID prefix
-/// is adjusted), which avoids the encoding overhead.  **When `false`, WKT input
-/// is not validated — malformed WKT is returned without error.**  Has no effect
-/// when the input is hex WKB, which is always decoded to normalised WKT.
+/// `false` to skip normalisation (only the SRID prefix is adjusted), which
+/// avoids the encoding overhead.  **When `false`, WKT input is not validated —
+/// malformed WKT is returned without error.**  Note that leading/trailing
+/// whitespace is always trimmed regardless of this flag.  Has no effect when
+/// the input is hex WKB, which is always decoded to normalised WKT.
 pub fn text_to_wkt(text: &str, srid: SridMode, normalize_wkt: bool) -> Result<String> {
     let trimmed = text.trim();
     let hex_input = is_hex_str(trimmed);
@@ -207,10 +209,10 @@ fn decode_hex(hex: &str) -> Result<Vec<u8>> {
         .enumerate()
         .map(|(idx, pair)| {
             let hi = parse_hex_nibble(pair[0]).ok_or_else(|| {
-                Error::InvalidWkb(format!("invalid hex byte at position {}", idx * 2))
+                Error::InvalidWkb(format!("invalid hex digit at position {}", idx * 2))
             })?;
             let lo = parse_hex_nibble(pair[1]).ok_or_else(|| {
-                Error::InvalidWkb(format!("invalid hex byte at position {}", idx * 2 + 1))
+                Error::InvalidWkb(format!("invalid hex digit at position {}", idx * 2 + 1))
             })?;
             Ok((hi << 4) | lo)
         })
