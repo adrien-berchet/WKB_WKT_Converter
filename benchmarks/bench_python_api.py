@@ -130,3 +130,110 @@ def test_conv_hex_wkb_to_wkt(benchmark, name):
 def test_shapely_hex_wkb_to_wkt(benchmark, name):
     hex_wkb = GEOMETRIES_HEX_WKB[name]
     benchmark(lambda: to_wkt(from_wkb(bytes.fromhex(hex_wkb))))
+
+
+# ---------------------------------------------------------------------------
+# text_to_wkb — WKT input path
+# ---------------------------------------------------------------------------
+
+@_WKT_PARAMS
+def test_conv_text_to_wkb_from_wkt(benchmark, name):
+    benchmark(conv.text_to_wkb, GEOMETRIES_WKT[name])
+
+
+@shapely_required
+@_WKT_PARAMS
+def test_shapely_text_to_wkb_from_wkt(benchmark, name):
+    wkt = GEOMETRIES_WKT[name]
+    benchmark(lambda: to_wkb(from_wkt(wkt)))
+
+
+# ---------------------------------------------------------------------------
+# text_to_wkb — hex WKB input path
+# ---------------------------------------------------------------------------
+
+@_WKB_PARAMS
+def test_conv_text_to_wkb_from_hex(benchmark, name):
+    benchmark(conv.text_to_wkb, GEOMETRIES_HEX_WKB[name])
+
+
+@shapely_required
+@_WKB_PARAMS
+def test_shapely_text_to_wkb_from_hex(benchmark, name):
+    hex_wkb = GEOMETRIES_HEX_WKB[name]
+    benchmark(lambda: to_wkb(from_wkb(bytes.fromhex(hex_wkb))))
+
+
+# ---------------------------------------------------------------------------
+# text_to_wkt — WKT input, normalize_wkt=False (fast path: no WKB round-trip)
+# Shapely always normalises so there is no equivalent comparison here.
+# ---------------------------------------------------------------------------
+
+@_WKT_PARAMS
+def test_conv_text_to_wkt_from_wkt_no_normalize(benchmark, name):
+    benchmark(conv.text_to_wkt, GEOMETRIES_WKT[name])
+
+
+# ---------------------------------------------------------------------------
+# text_to_wkt — WKT input, normalize_wkt=True (full WKT→WKB→WKT round-trip)
+# ---------------------------------------------------------------------------
+
+@_WKT_PARAMS
+def test_conv_text_to_wkt_from_wkt_normalize(benchmark, name):
+    wkt = GEOMETRIES_WKT[name]
+    benchmark(lambda: conv.text_to_wkt(wkt, normalize_wkt=True))
+
+
+@shapely_required
+@_WKT_PARAMS
+def test_shapely_text_to_wkt_from_wkt(benchmark, name):
+    wkt = GEOMETRIES_WKT[name]
+    benchmark(lambda: to_wkt(from_wkt(wkt)))
+
+
+# ---------------------------------------------------------------------------
+# text_to_wkt — hex WKB input path (always full conversion)
+# ---------------------------------------------------------------------------
+
+@_WKB_PARAMS
+def test_conv_text_to_wkt_from_hex(benchmark, name):
+    benchmark(conv.text_to_wkt, GEOMETRIES_HEX_WKB[name])
+
+
+@shapely_required
+@_WKB_PARAMS
+def test_shapely_text_to_wkt_from_hex(benchmark, name):
+    hex_wkb = GEOMETRIES_HEX_WKB[name]
+    benchmark(lambda: to_wkt(from_wkb(bytes.fromhex(hex_wkb))))
+
+
+# ---------------------------------------------------------------------------
+# text_to_hex_wkb — WKT input path
+# ---------------------------------------------------------------------------
+
+@_WKT_PARAMS
+def test_conv_text_to_hex_wkb_from_wkt(benchmark, name):
+    benchmark(conv.text_to_hex_wkb, GEOMETRIES_WKT[name])
+
+
+@shapely_required
+@_WKT_PARAMS
+def test_shapely_text_to_hex_wkb_from_wkt(benchmark, name):
+    wkt = GEOMETRIES_WKT[name]
+    benchmark(lambda: to_wkb(from_wkt(wkt)).hex().upper())
+
+
+# ---------------------------------------------------------------------------
+# text_to_hex_wkb — hex WKB input path
+# ---------------------------------------------------------------------------
+
+@_WKB_PARAMS
+def test_conv_text_to_hex_wkb_from_hex(benchmark, name):
+    benchmark(conv.text_to_hex_wkb, GEOMETRIES_HEX_WKB[name])
+
+
+@shapely_required
+@_WKB_PARAMS
+def test_shapely_text_to_hex_wkb_from_hex(benchmark, name):
+    hex_wkb = GEOMETRIES_HEX_WKB[name]
+    benchmark(lambda: to_wkb(from_wkb(bytes.fromhex(hex_wkb))).hex().upper())
