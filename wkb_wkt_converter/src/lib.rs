@@ -42,7 +42,7 @@ pub fn hex_wkb_to_wkt(hex: &str) -> Result<String> {
     wkb_to_wkt(&bytes)
 }
 
-/// Controls SRID handling in the output of [`text_to_wkb`] and [`text_to_wkt`].
+/// Controls SRID handling in the output of [`text_to_wkb`], [`text_to_wkt`], and [`text_to_hex_wkb`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SridMode {
     /// Mirror the input: SRID is kept if present, absent if not.
@@ -110,10 +110,11 @@ pub fn text_to_wkb(text: &str, srid: SridMode) -> Result<Vec<u8>> {
 /// when the input is hex WKB, which is always decoded to normalised WKT.
 pub fn text_to_wkt(text: &str, srid: SridMode, normalize_wkt: bool) -> Result<String> {
     let trimmed = text.trim();
+    let hex_input = is_hex_str(trimmed);
 
     // Fast path: WKT input with normalisation disabled — manipulate the SRID
     // prefix directly without parsing or re-encoding the geometry.
-    if !normalize_wkt && !is_hex_str(trimmed) {
+    if !normalize_wkt && !hex_input {
         return Ok(match srid {
             SridMode::Auto => trimmed.to_owned(),
             SridMode::Strip => strip_ewkt_prefix(trimmed).to_owned(),
@@ -126,7 +127,7 @@ pub fn text_to_wkt(text: &str, srid: SridMode, normalize_wkt: bool) -> Result<St
     // Normalising path (always used for hex input; used for WKT when normalize_wkt=true).
     match srid {
         SridMode::Auto => {
-            if is_hex_str(trimmed) {
+            if hex_input {
                 hex_wkb_to_wkt(trimmed)
             } else {
                 let wkb = wkt_to_wkb(trimmed)?;
@@ -134,7 +135,7 @@ pub fn text_to_wkt(text: &str, srid: SridMode, normalize_wkt: bool) -> Result<St
             }
         }
         SridMode::Strip => {
-            if is_hex_str(trimmed) {
+            if hex_input {
                 let bytes = decode_hex(trimmed)?;
                 wkb_to_wkt_split_srid(&bytes).map(|(s, _)| s)
             } else {
@@ -209,7 +210,7 @@ fn decode_hex(hex: &str) -> Result<Vec<u8>> {
                 Error::InvalidWkb(format!("invalid hex byte at position {}", idx * 2))
             })?;
             let lo = parse_hex_nibble(pair[1]).ok_or_else(|| {
-                Error::InvalidWkb(format!("invalid hex byte at position {}", idx * 2))
+                Error::InvalidWkb(format!("invalid hex byte at position {}", idx * 2 + 1))
             })?;
             Ok((hi << 4) | lo)
         })

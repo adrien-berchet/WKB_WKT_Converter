@@ -173,6 +173,21 @@ def test_text_to_wkb_invalid_raises_value_error():
         m.text_to_wkb("NOT_A_GEOMETRY (1 2)")
 
 
+def test_text_to_wkb_empty_string_raises():
+    with pytest.raises(ValueError):
+        m.text_to_wkb("")
+
+
+def test_text_to_wkb_odd_length_hex_raises():
+    with pytest.raises(ValueError):
+        m.text_to_wkb("ABC")
+
+
+def test_text_to_wkb_srid_zero_is_accepted():
+    result = m.text_to_wkb("POINT (1 2)", srid=0)
+    assert m.wkb_to_wkt(result) == "SRID=0;POINT (1 2)"
+
+
 def test_text_to_wkb_srid_none_is_default():
     ewkt = "SRID=4326;POINT (1 2)"
     assert m.text_to_wkb(ewkt) == m.text_to_wkb(ewkt, srid=None)
@@ -286,6 +301,21 @@ def test_text_to_wkt_roundtrip_from_hex(wkt):
 def test_text_to_wkt_invalid_raises_value_error():
     with pytest.raises(ValueError):
         m.text_to_wkt("NOT_A_GEOMETRY (1 2)", normalize_wkt=True)
+
+
+def test_text_to_wkt_empty_string_raises():
+    with pytest.raises(ValueError):
+        m.text_to_wkt("", normalize_wkt=True)
+
+
+def test_text_to_wkt_odd_length_hex_raises():
+    with pytest.raises(ValueError):
+        m.text_to_wkt("ABC", normalize_wkt=True)
+
+
+def test_text_to_wkt_srid_zero_is_accepted():
+    result = m.text_to_wkt("POINT (1 2)", srid=0, normalize_wkt=True)
+    assert result == "SRID=0;POINT (1 2)"
 
 
 def test_text_to_wkt_srid_none_is_default():

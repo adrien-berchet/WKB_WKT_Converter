@@ -187,7 +187,7 @@ WKB/EWKB string and detect the format automatically.
 | Function | Output |
 |---|---|
 | `text_to_wkb(text, srid=None)` | `bytes` |
-| `text_to_wkt(text, srid=None, normalize_wkt=True)` | `str` |
+| `text_to_wkt(text, srid=None, normalize_wkt=False)` | `str` |
 | `text_to_hex_wkb(text, srid=None)` | `str` |
 
 The `srid` keyword argument controls SRID handling in the output:

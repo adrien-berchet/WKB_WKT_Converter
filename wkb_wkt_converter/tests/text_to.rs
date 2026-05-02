@@ -110,6 +110,29 @@ fn wkb_set_overrides_srid_in_hex_ewkb() {
     assert_eq!(wkb_to_wkt(&wkb).unwrap(), "SRID=3857;POINT (1 2)");
 }
 
+// ── edge cases ───────────────────────────────────────────────────────────────
+
+#[test]
+fn empty_string_errors() {
+    assert!(text_to_wkb("", SridMode::Auto).is_err());
+    assert!(text_to_wkt("", SridMode::Auto, true).is_err());
+    assert!(text_to_hex_wkb("", SridMode::Auto).is_err());
+}
+
+#[test]
+fn odd_length_hex_string_errors() {
+    // All-hex odd-length input is routed to the hex WKB branch and fails.
+    assert!(text_to_wkb("ABC", SridMode::Auto).is_err());
+    assert!(text_to_wkt("ABC", SridMode::Auto, true).is_err());
+    assert!(text_to_hex_wkb("ABC", SridMode::Auto).is_err());
+}
+
+#[test]
+fn srid_set_zero_is_accepted() {
+    let wkb = text_to_wkb("POINT (1 2)", SridMode::Set(0)).unwrap();
+    assert_eq!(wkb_to_wkt(&wkb).unwrap(), "SRID=0;POINT (1 2)");
+}
+
 // ── text_to_wkt: input detection and normalisation ───────────────────────────
 
 #[test]
