@@ -69,6 +69,12 @@ pub enum SridMode {
 ///   When the input is hex WKB, the bytes are returned as-is without WKB structure validation.
 /// - [`SridMode::Strip`]: always strip the SRID from the output.
 /// - [`SridMode::Set(n)`]: always embed SRID `n`, overriding any SRID in the input.
+///
+/// **Note on validation:** for little-endian hex WKB input under `Strip` and `Set`, the
+/// geometry body is not parsed — only the EWKB header is inspected and rewritten.
+/// Structurally invalid coordinate data in an otherwise well-formed header passes through
+/// without error.  Big-endian or malformed-header input always falls back to a full
+/// parse round-trip which validates the geometry body.
 pub fn text_to_wkb(text: &str, srid: SridMode) -> Result<Vec<u8>> {
     let trimmed = text.trim();
     match srid {
@@ -136,9 +142,12 @@ pub fn text_to_wkt(text: &str, srid: SridMode, normalize_wkt: bool) -> Result<St
     }
 
     // Fast path for WKT input with normalisation disabled.
-    // All valid WKT geometry type keywords (POINT, LINESTRING, …) and the
-    // SRID= prefix start with characters that are not ASCII hex digits, so
-    // checking the first byte is a reliable O(1) discriminator.
+    // All geometry type keywords supported by this library (POINT, LINESTRING,
+    // POLYGON, MULTI*, GEOMETRYCOLLECTION) and the SRID= prefix start with a
+    // letter that is not an ASCII hex digit, so the first byte is a reliable
+    // O(1) discriminator.  (Note: extended keywords like CIRCULARSTRING start
+    // with 'C' which IS a hex digit; those fall through to try_decode_hex, which
+    // returns None for non-hex body characters and routes them to WKT parsing.)
     if !normalize_wkt
         && trimmed
             .as_bytes()
