@@ -4,6 +4,8 @@ pub mod types;
 mod wkb_to_wkt;
 mod wkt_to_wkb;
 
+use types::EWKB_SRID;
+
 pub use error::{Error, Result};
 pub use types::{Dimension, GeomType};
 
@@ -69,24 +71,37 @@ pub fn text_to_wkb(text: &str, srid: SridMode) -> Result<Vec<u8>> {
     let trimmed = text.trim();
     match srid {
         SridMode::Auto => {
-            if is_hex_str(trimmed) {
-                decode_hex(trimmed)
+            if let Some(bytes) = try_decode_hex(trimmed) {
+                Ok(bytes)
             } else {
                 wkt_to_wkb(trimmed)
             }
         }
         SridMode::Strip => {
-            if is_hex_str(trimmed) {
-                let bytes = decode_hex(trimmed)?;
-                let (wkt, _) = wkb_to_wkt_split_srid(&bytes)?;
-                wkt_to_wkb(&wkt)
+            if let Some(bytes) = try_decode_hex(trimmed) {
+                if let Some(out) = try_strip_srid_from_le_wkb(&bytes) {
+                    Ok(out)
+                } else {
+                    // Big-endian or malformed: fall back to full round-trip which
+                    // normalises byte order and validates structure.
+                    let (wkt, _) = wkb_to_wkt_split_srid(&bytes)?;
+                    wkt_to_wkb(&wkt)
+                }
             } else {
                 wkt_to_wkb_split_srid(trimmed).map(|(b, _)| b)
             }
         }
         SridMode::Set(srid_val) => {
-            let plain = plain_wkt_from(trimmed)?;
-            wkt_to_wkb(&format!("SRID={srid_val};{plain}"))
+            if let Some(bytes) = try_decode_hex(trimmed) {
+                if let Some(out) = try_set_srid_in_le_wkb(&bytes, srid_val) {
+                    Ok(out)
+                } else {
+                    let (wkt, _) = wkb_to_wkt_split_srid(&bytes)?;
+                    wkt_to_wkb(&format!("SRID={srid_val};{wkt}"))
+                }
+            } else {
+                wkt_to_wkb(&format!("SRID={srid_val};{}", strip_ewkt_prefix(trimmed)))
+            }
         }
     }
 }
@@ -112,11 +127,17 @@ pub fn text_to_wkb(text: &str, srid: SridMode) -> Result<Vec<u8>> {
 /// the input is hex WKB, which is always decoded to normalised WKT.
 pub fn text_to_wkt(text: &str, srid: SridMode, normalize_wkt: bool) -> Result<String> {
     let trimmed = text.trim();
-    let hex_input = is_hex_str(trimmed);
 
-    // Fast path: WKT input with normalisation disabled — manipulate the SRID
-    // prefix directly without parsing or re-encoding the geometry.
-    if !normalize_wkt && !hex_input {
+    // Fast path for WKT input with normalisation disabled.
+    // All valid WKT geometry type keywords (POINT, LINESTRING, …) and the
+    // SRID= prefix start with characters that are not ASCII hex digits, so
+    // checking the first byte is a reliable O(1) discriminator.
+    if !normalize_wkt
+        && trimmed
+            .as_bytes()
+            .first()
+            .is_some_and(|b| !b.is_ascii_hexdigit())
+    {
         return Ok(match srid {
             SridMode::Auto => trimmed.to_owned(),
             SridMode::Strip => strip_ewkt_prefix(trimmed).to_owned(),
@@ -126,27 +147,44 @@ pub fn text_to_wkt(text: &str, srid: SridMode, normalize_wkt: bool) -> Result<St
         });
     }
 
-    // Normalising path (always used for hex input; used for WKT when normalize_wkt=true).
+    // Single-pass hex detection and decoding (hex WKB is always normalised).
+    if let Some(decoded) = try_decode_hex(trimmed) {
+        return match srid {
+            SridMode::Auto => wkb_to_wkt(&decoded),
+            SridMode::Strip => wkb_to_wkt_split_srid(&decoded).map(|(s, _)| s),
+            SridMode::Set(srid_val) => {
+                let (plain, _) = wkb_to_wkt_split_srid(&decoded)?;
+                Ok(format!("SRID={srid_val};{plain}"))
+            }
+        };
+    }
+
+    // WKT input whose first byte happens to be a hex digit (e.g. starts with
+    // a digit), but failed hex decoding.  With normalisation disabled, return
+    // as-is (no validation).
+    if !normalize_wkt {
+        return Ok(match srid {
+            SridMode::Auto => trimmed.to_owned(),
+            SridMode::Strip => strip_ewkt_prefix(trimmed).to_owned(),
+            SridMode::Set(srid_val) => {
+                format!("SRID={srid_val};{}", strip_ewkt_prefix(trimmed))
+            }
+        });
+    }
+
+    // WKT input, normalisation enabled.
     match srid {
         SridMode::Auto => {
-            if hex_input {
-                hex_wkb_to_wkt(trimmed)
-            } else {
-                let wkb = wkt_to_wkb(trimmed)?;
-                wkb_to_wkt(&wkb)
-            }
+            let wkb = wkt_to_wkb(trimmed)?;
+            wkb_to_wkt(&wkb)
         }
         SridMode::Strip => {
-            if hex_input {
-                let bytes = decode_hex(trimmed)?;
-                wkb_to_wkt_split_srid(&bytes).map(|(s, _)| s)
-            } else {
-                let (wkb, _) = wkt_to_wkb_split_srid(trimmed)?;
-                wkb_to_wkt(&wkb)
-            }
+            let (wkb, _) = wkt_to_wkb_split_srid(trimmed)?;
+            wkb_to_wkt(&wkb)
         }
         SridMode::Set(srid_val) => {
-            let plain = plain_wkt_from(trimmed)?;
+            let (wkb, _) = wkt_to_wkb_split_srid(trimmed)?;
+            let plain = wkb_to_wkt(&wkb)?;
             Ok(format!("SRID={srid_val};{plain}"))
         }
     }
@@ -162,17 +200,6 @@ pub fn text_to_hex_wkb(text: &str, srid: SridMode) -> Result<String> {
     text_to_wkb(text, srid).map(|b| encode_hex(&b))
 }
 
-/// Returns a normalised, SRID-free WKT string from either hex WKB or WKT input.
-fn plain_wkt_from(trimmed: &str) -> Result<String> {
-    if is_hex_str(trimmed) {
-        let bytes = decode_hex(trimmed)?;
-        wkb_to_wkt_split_srid(&bytes).map(|(s, _)| s)
-    } else {
-        let (wkb, _) = wkt_to_wkb_split_srid(trimmed)?;
-        wkb_to_wkt(&wkb)
-    }
-}
-
 fn strip_ewkt_prefix(wkt: &str) -> &str {
     if wkt
         .get(..5)
@@ -185,20 +212,43 @@ fn strip_ewkt_prefix(wkt: &str) -> &str {
     wkt
 }
 
+/// Encode bytes as an uppercase hexadecimal string using a lookup table.
+///
+/// This is substantially faster than the `write!(s, "{b:02X}")` approach
+/// because it avoids invoking the format machinery for every byte.
 fn encode_hex(bytes: &[u8]) -> String {
-    bytes
-        .iter()
-        .fold(String::with_capacity(bytes.len() * 2), |mut s, b| {
-            use std::fmt::Write as _;
-            write!(s, "{b:02X}").unwrap();
-            s
-        })
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+    let mut out = vec![0u8; bytes.len() * 2];
+    for (i, &b) in bytes.iter().enumerate() {
+        out[2 * i] = HEX[(b >> 4) as usize];
+        out[2 * i + 1] = HEX[(b & 0xF) as usize];
+    }
+    // SAFETY: every byte written is an ASCII hex digit (0–9, A–F).
+    unsafe { String::from_utf8_unchecked(out) }
 }
 
-fn is_hex_str(s: &str) -> bool {
-    !s.is_empty() && s.bytes().all(|b| b.is_ascii_hexdigit())
+/// Try to decode `s` as a hex string in a single pass, combining detection and
+/// decoding.
+///
+/// Returns `None` if `s` is empty, has odd length, or contains any
+/// non-hexadecimal character.  This replaces the previous two-pass pattern of
+/// `is_hex_str(s)` followed by `decode_hex(s)`.
+fn try_decode_hex(s: &str) -> Option<Vec<u8>> {
+    let bytes = s.as_bytes();
+    if bytes.is_empty() || bytes.len() % 2 != 0 {
+        return None;
+    }
+    let mut out = Vec::with_capacity(bytes.len() / 2);
+    for chunk in bytes.chunks_exact(2) {
+        let hi = parse_hex_nibble(chunk[0])?;
+        let lo = parse_hex_nibble(chunk[1])?;
+        out.push((hi << 4) | lo);
+    }
+    Some(out)
 }
 
+/// Decode a hex string with detailed position-aware error messages.
+/// Used by [`hex_wkb_to_wkt`] where the caller knows the input must be hex.
 fn decode_hex(hex: &str) -> Result<Vec<u8>> {
     let bytes = hex.as_bytes();
     if !bytes.len().is_multiple_of(2) {
@@ -225,5 +275,61 @@ fn parse_hex_nibble(b: u8) -> Option<u8> {
         b'a'..=b'f' => Some(b - b'a' + 10),
         b'A'..=b'F' => Some(b - b'A' + 10),
         _ => None,
+    }
+}
+
+/// Strip the SRID from a little-endian EWKB byte slice without parsing
+/// coordinates.
+///
+/// Returns `None` when the bytes are not recognisable as little-endian EWKB
+/// (too short, big-endian marker, or SRID flag set but fewer than 9 bytes
+/// available).  The caller should then fall back to a full WKB→WKT→WKB
+/// round-trip, which handles big-endian input and normalises to LE output.
+fn try_strip_srid_from_le_wkb(bytes: &[u8]) -> Option<Vec<u8>> {
+    if bytes.len() < 5 || bytes[0] != 1 {
+        return None;
+    }
+    let type_u32 = u32::from_le_bytes(bytes[1..5].try_into().unwrap());
+    if type_u32 & EWKB_SRID == 0 {
+        // No SRID present — return a copy unchanged.
+        return Some(bytes.to_vec());
+    }
+    if bytes.len() < 9 {
+        return None;
+    }
+    let new_type = type_u32 & !EWKB_SRID;
+    let mut out = Vec::with_capacity(bytes.len() - 4);
+    out.push(1u8); // little-endian marker
+    out.extend_from_slice(&new_type.to_le_bytes());
+    out.extend_from_slice(&bytes[9..]); // skip the 4 SRID bytes
+    Some(out)
+}
+
+/// Inject or replace the SRID in a little-endian EWKB byte slice without
+/// parsing coordinates.
+///
+/// Returns `None` under the same conditions as [`try_strip_srid_from_le_wkb`].
+fn try_set_srid_in_le_wkb(bytes: &[u8], srid: u32) -> Option<Vec<u8>> {
+    if bytes.len() < 5 || bytes[0] != 1 {
+        return None;
+    }
+    let type_u32 = u32::from_le_bytes(bytes[1..5].try_into().unwrap());
+    if type_u32 & EWKB_SRID != 0 {
+        // SRID already present — overwrite it in-place.
+        if bytes.len() < 9 {
+            return None;
+        }
+        let mut out = bytes.to_vec();
+        out[5..9].copy_from_slice(&srid.to_le_bytes());
+        Some(out)
+    } else {
+        // No SRID yet — insert 4 bytes after the type code and set the flag.
+        let new_type = type_u32 | EWKB_SRID;
+        let mut out = Vec::with_capacity(bytes.len() + 4);
+        out.push(1u8);
+        out.extend_from_slice(&new_type.to_le_bytes());
+        out.extend_from_slice(&srid.to_le_bytes());
+        out.extend_from_slice(&bytes[5..]);
+        Some(out)
     }
 }

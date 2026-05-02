@@ -4,6 +4,15 @@ use wkb_wkt_converter::{
     wkt_to_wkb, SridMode,
 };
 
+// Big-endian WKB for POINT (1 2): byte-order=0x00, type=0x00000001 (BE),
+// X=1.0 (BE f64), Y=2.0 (BE f64).
+const BE_POINT_HEX: &str = "00000000013FF00000000000004000000000000000";
+
+// Little-endian WKB with the EWKB SRID flag set in the type word but only 5
+// bytes total (no room for the 4-byte SRID value).  Used to exercise the
+// malformed-WKB fallback path.
+const LE_SHORT_SRID_HEX: &str = "0103000020";
+
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 fn hex(wkt: &str) -> String {
@@ -131,7 +140,9 @@ fn decode_hex_lowercase_accepted() {
 #[test]
 fn decode_hex_invalid_low_nibble_errors() {
     // '0' is a valid high nibble; 'Z' is an invalid low nibble.
-    // Must bypass is_hex_str by calling hex_wkb_to_wkt directly.
+    // try_decode_hex("0Z") returns None (not valid hex), so text_to_wkb
+    // would silently route to WKT parsing.  hex_wkb_to_wkt uses decode_hex
+    // directly and therefore returns a descriptive error.
     assert!(hex_wkb_to_wkt("0Z").is_err());
 }
 
@@ -146,7 +157,8 @@ fn strip_ewkt_prefix_no_semicolon_returns_unchanged() {
 
 #[test]
 fn odd_length_hex_string_errors() {
-    // All-hex odd-length input is routed to the hex WKB branch and fails.
+    // Odd-length all-hex input: try_decode_hex returns None (odd length) so
+    // the input falls through to WKT parsing, which also rejects it.
     assert!(text_to_wkb("ABC", SridMode::Auto).is_err());
     assert!(text_to_wkt("ABC", SridMode::Auto, true).is_err());
     assert!(text_to_hex_wkb("ABC", SridMode::Auto).is_err());
@@ -346,4 +358,56 @@ fn hex_wkb_strip_removes_srid() {
     let h = text_to_hex_wkb("SRID=4326;POINT (1 2)", SridMode::Strip).unwrap();
     let wkt = wkb_to_wkt(&hex::decode(&h).unwrap()).unwrap();
     assert_eq!(wkt, "POINT (1 2)");
+}
+
+// ── try_strip_srid_from_le_wkb / try_set_srid_in_le_wkb coverage ─────────────
+
+#[test]
+fn wkb_strip_noop_when_no_srid_in_hex_wkb() {
+    // hex WKB without SRID flag: fast binary path returns bytes unchanged.
+    let h = hex("POINT (1 2)");
+    let wkb = text_to_wkb(&h, SridMode::Strip).unwrap();
+    assert_eq!(wkb_to_wkt(&wkb).unwrap(), "POINT (1 2)");
+}
+
+#[test]
+fn wkb_strip_big_endian_hex_falls_back_to_round_trip() {
+    // Big-endian WKB: try_strip_srid_from_le_wkb returns None, so text_to_wkb
+    // falls back to the full WKB→WKT→WKB round-trip which normalises to LE.
+    let wkb = text_to_wkb(BE_POINT_HEX, SridMode::Strip).unwrap();
+    assert_eq!(wkb_to_wkt(&wkb).unwrap(), "POINT (1 2)");
+}
+
+#[test]
+fn wkb_strip_malformed_short_srid_errors() {
+    // LE WKB with SRID flag but only 5 bytes (no room for 4-byte SRID value):
+    // try_strip_srid_from_le_wkb returns None, fallback round-trip fails.
+    assert!(text_to_wkb(LE_SHORT_SRID_HEX, SridMode::Strip).is_err());
+}
+
+#[test]
+fn wkb_set_big_endian_hex_falls_back_to_round_trip() {
+    // Big-endian WKB: try_set_srid_in_le_wkb returns None, fallback works.
+    let wkb = text_to_wkb(BE_POINT_HEX, SridMode::Set(4326)).unwrap();
+    assert_eq!(wkb_to_wkt(&wkb).unwrap(), "SRID=4326;POINT (1 2)");
+}
+
+#[test]
+fn wkb_set_malformed_short_srid_errors() {
+    // LE WKB with SRID flag but too short: try_set_srid_in_le_wkb returns None,
+    // fallback round-trip fails.
+    assert!(text_to_wkb(LE_SHORT_SRID_HEX, SridMode::Set(4326)).is_err());
+}
+
+// ── text_to_wkt: normalize_wkt=false with hex-digit-starting non-hex input ───
+
+#[test]
+fn wkt_no_normalize_hex_start_non_hex_body_returned_as_is() {
+    // Input begins with a hex digit ('0') but is not valid hex (contains 'X').
+    // The fast O(1) first-char check does NOT apply (first byte IS a hex digit),
+    // so try_decode_hex is attempted, fails, and the WKT is returned as-is.
+    assert_eq!(
+        text_to_wkt("0XTEST", SridMode::Auto, false).unwrap(),
+        "0XTEST"
+    );
 }
