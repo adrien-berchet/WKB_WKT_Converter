@@ -6,7 +6,9 @@ pub(super) struct WktBuilder {
 
 impl WktBuilder {
     pub fn with_capacity(n: usize) -> Self {
-        Self { buf: String::with_capacity(n) }
+        Self {
+            buf: String::with_capacity(n),
+        }
     }
 
     pub fn finish(self) -> String {

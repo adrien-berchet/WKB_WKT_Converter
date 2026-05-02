@@ -82,7 +82,7 @@ pub fn text_to_wkb(text: &str, srid: SridMode) -> Result<Vec<u8>> {
         SridMode::Strip => {
             if let Some(bytes) = try_decode_hex(trimmed) {
                 match try_strip_srid_from_le_wkb(&bytes) {
-                    Some(Cow::Borrowed(_)) => Ok(bytes),   // no SRID — decoded bytes are already correct
+                    Some(Cow::Borrowed(_)) => Ok(bytes), // no SRID — decoded bytes are already correct
                     Some(Cow::Owned(out)) => Ok(out),
                     None => {
                         let (wkt, _) = wkb_to_wkt_split_srid(&bytes)?;
@@ -96,7 +96,7 @@ pub fn text_to_wkb(text: &str, srid: SridMode) -> Result<Vec<u8>> {
         SridMode::Set(srid_val) => {
             if let Some(bytes) = try_decode_hex(trimmed) {
                 match try_set_srid_in_le_wkb(&bytes, srid_val) {
-                    Some(Cow::Borrowed(_)) => Ok(bytes),   // SRID already correct
+                    Some(Cow::Borrowed(_)) => Ok(bytes), // SRID already correct
                     Some(Cow::Owned(out)) => Ok(out),
                     None => {
                         let (wkt, _) = wkb_to_wkt_split_srid(&bytes)?;
