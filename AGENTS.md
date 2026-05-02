@@ -12,10 +12,25 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo fmt --all                  # apply formatting
 cargo fmt --all -- --check       # check only (CI mode)
 
+# Coverage (must reach 100% line coverage — CI enforces this)
+cargo llvm-cov --package wkb_wkt_converter --fail-under-lines 100
+
 # Python bindings (requires maturin and a Rust toolchain)
 maturin develop                  # build and install into the active virtualenv
 pytest                           # run Python binding tests
 ```
+
+## Test coverage
+
+**Line coverage must be 100%** for the `wkb_wkt_converter` crate. CI enforces this
+with `--fail-under-lines 100`. When adding or changing code:
+
+- Every new code path must be exercised by at least one test.
+- Run `cargo llvm-cov --package wkb_wkt_converter --fail-under-lines 100` locally
+  before pushing to confirm coverage is maintained.
+- If a line is genuinely unreachable (e.g. a defensive branch that cannot be
+  triggered through the public API), prefer removing it over marking it as
+  excluded — dead code should not exist in this codebase.
 
 ## Architecture
 

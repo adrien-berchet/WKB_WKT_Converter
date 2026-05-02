@@ -58,7 +58,7 @@ jobs:
         uses: taiki-e/install-action@cargo-llvm-cov
 
       - name: Generate coverage report
-        run: cargo llvm-cov --package wkb_wkt_converter --lcov --output-path lcov.info
+        run: cargo llvm-cov --package wkb_wkt_converter --lcov --output-path lcov.info --fail-under-lines 100
 
       - name: Upload to Codecov
         uses: codecov/codecov-action@v4
