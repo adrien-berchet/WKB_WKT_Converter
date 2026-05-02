@@ -60,9 +60,9 @@ pub enum SridMode {
 
 /// Converts any WKT/EWKT string or hex-encoded WKB/EWKB string to WKB bytes.
 ///
-/// The input format is detected automatically: a string composed entirely of
-/// hexadecimal characters is treated as hex WKB; anything else is treated as
-/// WKT.
+/// The input format is detected automatically: a non-empty string with even
+/// length composed entirely of hexadecimal characters is treated as hex WKB;
+/// anything else (including odd-length all-hex strings) is treated as WKT.
 ///
 /// `srid` controls SRID handling in the output:
 /// - [`SridMode::Auto`] (default): mirror the input — SRID kept if present, absent if not.
@@ -119,9 +119,9 @@ pub fn text_to_wkb(text: &str, srid: SridMode) -> Result<Vec<u8>> {
 /// Converts any WKT/EWKT string or hex-encoded WKB/EWKB string to a WKT
 /// string.
 ///
-/// The input format is detected automatically: a string composed entirely of
-/// hexadecimal characters is treated as hex WKB; anything else is treated as
-/// WKT.
+/// The input format is detected automatically: a non-empty string with even
+/// length composed entirely of hexadecimal characters is treated as hex WKB;
+/// anything else (including odd-length all-hex strings) is treated as WKT.
 ///
 /// `srid` controls SRID handling in the output:
 /// - [`SridMode::Auto`] (default): mirror the input — `SRID=N;` prefix kept if present.
@@ -133,8 +133,9 @@ pub fn text_to_wkb(text: &str, srid: SridMode) -> Result<Vec<u8>> {
 /// `false` to skip normalisation (only the SRID prefix is adjusted), which
 /// avoids the encoding overhead.  **When `false`, WKT input is not validated —
 /// malformed WKT is returned without error.**  Note that leading/trailing
-/// whitespace is always trimmed regardless of this flag.  Has no effect when
-/// the input is hex WKB, which is always decoded to normalised WKT.
+/// whitespace is always trimmed regardless of this flag.  An empty input string
+/// always returns an error regardless of this flag.  Has no effect when the
+/// input is hex WKB, which is always decoded to normalised WKT.
 pub fn text_to_wkt(text: &str, srid: SridMode, normalize_wkt: bool) -> Result<String> {
     let trimmed = text.trim();
     if trimmed.is_empty() {
