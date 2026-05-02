@@ -78,11 +78,11 @@ pub fn text_to_hex_wkb(text: &str, srid: SridMode) -> Result<String>
 | `SridMode::Strip` | Always strip the SRID from the output |
 | `SridMode::Set(n)` | Always embed SRID `n`, overriding whatever the input contains |
 
-`text_to_wkt` also accepts a `normalize_wkt: bool` parameter (default `true`).
-When `true`, WKT input is normalised (canonical casing, spacing, coordinate
-formatting) via a round-trip through WKB.  When `false`, WKT input is returned
-as-is (only the SRID prefix is manipulated), which avoids the encoding overhead.
-Hex WKB input is always decoded to normalised WKT regardless of this flag.
+`text_to_wkt` accepts a `normalize_wkt: bool` parameter.  When `true`, WKT
+input is normalised (canonical casing, spacing, coordinate formatting) via a
+round-trip through WKB.  When `false`, WKT input is returned as-is (only the
+SRID prefix is adjusted), which avoids the encoding overhead.  Hex WKB input is
+always decoded to normalised WKT regardless of this flag.
 
 ### Example
 
@@ -111,16 +111,16 @@ let wkt = wkb_to_wkt(&wkb)?;
 assert_eq!(wkt, "MULTIPOLYGON ZM (((0 0 0 1, 1 0 0 1, 1 1 0 1, 0 0 0 1)))");
 
 // Generic converters: input format (WKT or hex WKB) detected automatically
-// Normalise WKT (casing, whitespace) — SridMode::Auto mirrors the input
-let wkt = text_to_wkt("point(1 2)", SridMode::Auto)?;
+// Normalise WKT (casing, whitespace) — SridMode::Auto mirrors the input SRID
+let wkt = text_to_wkt("point(1 2)", SridMode::Auto, true)?;
 assert_eq!(wkt, "POINT (1 2)");
 
 // Add or override an SRID regardless of what the input contains
 let hex = text_to_hex_wkb("POINT (1 2)", SridMode::Set(4326))?;
 // hex is an EWKB string encoding SRID=4326;POINT (1 2)
 
-// Strip the SRID even when the input is already EWKT
-let wkt = text_to_wkt("SRID=4326;POINT (1 2)", SridMode::Strip)?;
+// Strip the SRID without re-encoding (fast path)
+let wkt = text_to_wkt("SRID=4326;POINT (1 2)", SridMode::Strip, false)?;
 assert_eq!(wkt, "POINT (1 2)");
 ```
 
@@ -197,11 +197,12 @@ The `srid` keyword argument controls SRID handling in the output:
 | `False` | Always strip the SRID from the output |
 | `int` | Always embed this SRID, overriding whatever the input contains |
 
-`text_to_wkt` also accepts a `normalize_wkt` keyword argument (default `True`).
+`text_to_wkt` accepts a `normalize_wkt` keyword argument (default `False`).
 When `True`, WKT input is normalised (canonical casing, spacing, coordinate
-formatting) via a round-trip through WKB.  When `False`, WKT input is returned
-as-is (only the SRID prefix is manipulated), which avoids the encoding overhead.
-Hex WKB input is always decoded to normalised WKT regardless of this flag.
+formatting) via a round-trip through WKB.  When `False` (the default), WKT
+input is returned as-is (only the SRID prefix is adjusted), which avoids the
+encoding overhead.  Hex WKB input is always decoded to normalised WKT regardless
+of this flag.
 
 ### Example
 
@@ -224,17 +225,17 @@ wkt = hex_wkb_to_wkt(hex_wkb)
 assert wkt == "POINT (1 2)"
 
 # Generic converters: input format detected automatically
-wkt = text_to_wkt("point(1 2)")                      # normalise WKT
+wkt = text_to_wkt("point(1 2)", normalize_wkt=True)  # normalise WKT
 assert wkt == "POINT (1 2)"
 
-wkt = text_to_wkt(hex_wkb)                           # hex WKB → WKT
+wkt = text_to_wkt(hex_wkb)                           # hex WKB → WKT (always normalised)
 assert wkt == "POINT (1 2)"
 
 hex_out = text_to_hex_wkb("POINT (1 2)", srid=4326)  # add SRID
 wkt = text_to_wkt(hex_out)
 assert wkt == "SRID=4326;POINT (1 2)"
 
-wkt = text_to_wkt("SRID=4326;POINT (1 2)", srid=False)  # strip SRID
+wkt = text_to_wkt("SRID=4326;POINT (1 2)", srid=False)  # strip SRID (fast path)
 assert wkt == "POINT (1 2)"
 ```
 

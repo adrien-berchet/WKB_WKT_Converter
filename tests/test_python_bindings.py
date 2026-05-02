@@ -246,8 +246,8 @@ def test_text_to_wkt_from_hex_wkb_returns_str():
 
 
 def test_text_to_wkt_normalises_wkt():
-    # WKT with non-canonical whitespace/casing is normalised
-    assert m.text_to_wkt("point(1 2)") == "POINT (1 2)"
+    # WKT with non-canonical whitespace/casing is normalised when normalize_wkt=True
+    assert m.text_to_wkt("point(1 2)", normalize_wkt=True) == "POINT (1 2)"
 
 
 def test_text_to_wkt_preserves_srid_from_wkt():
@@ -311,7 +311,7 @@ def test_text_to_wkt_srid_false_strips_srid_from_hex_wkb():
 
 
 def test_text_to_wkt_srid_false_normalises_wkt():
-    assert m.text_to_wkt("point(1 2)", srid=False) == "POINT (1 2)"
+    assert m.text_to_wkt("point(1 2)", srid=False, normalize_wkt=True) == "POINT (1 2)"
 
 
 def test_text_to_wkt_srid_false_no_srid_unchanged():
@@ -343,8 +343,8 @@ def test_text_to_wkt_srid_true_raises_value_error():
 
 # ── text_to_wkt: normalize_wkt parameter ─────────────────────────────────────
 
-def test_text_to_wkt_normalize_wkt_true_is_default():
-    assert m.text_to_wkt("point(1 2)") == m.text_to_wkt("point(1 2)", normalize_wkt=True)
+def test_text_to_wkt_normalize_wkt_false_is_default():
+    assert m.text_to_wkt("point(1 2)") == m.text_to_wkt("point(1 2)", normalize_wkt=False)
 
 
 def test_text_to_wkt_normalize_wkt_true_normalises_casing():

@@ -103,9 +103,10 @@ pub fn text_to_wkb(text: &str, srid: SridMode) -> Result<Vec<u8>> {
 /// - [`SridMode::Set(n)`]: always prepend `SRID=n;`, overriding any SRID in the input.
 ///
 /// `normalize_wkt` controls whether WKT input is normalised (canonical casing,
-/// spacing, and coordinate formatting) via a round-trip through WKB.  Has no
-/// effect when the input is hex WKB, which is always decoded to normalised WKT.
-/// Defaults to `true`.
+/// spacing, and coordinate formatting) via a round-trip through WKB.  Pass
+/// `false` to skip normalisation and return the WKT as-is (only the SRID prefix
+/// is adjusted), which avoids the encoding overhead.  Has no effect when the
+/// input is hex WKB, which is always decoded to normalised WKT.
 pub fn text_to_wkt(text: &str, srid: SridMode, normalize_wkt: bool) -> Result<String> {
     let trimmed = text.trim();
 
@@ -169,7 +170,10 @@ fn plain_wkt_from(trimmed: &str) -> Result<String> {
 }
 
 fn strip_ewkt_prefix(wkt: &str) -> &str {
-    if wkt.len() >= 5 && wkt[..5].eq_ignore_ascii_case("SRID=") {
+    if wkt
+        .get(..5)
+        .is_some_and(|p| p.eq_ignore_ascii_case("SRID="))
+    {
         if let Some(pos) = wkt.find(';') {
             return wkt[pos + 1..].trim_start();
         }
@@ -192,14 +196,30 @@ fn is_hex_str(s: &str) -> bool {
 }
 
 fn decode_hex(hex: &str) -> Result<Vec<u8>> {
-    if !hex.len().is_multiple_of(2) {
+    let bytes = hex.as_bytes();
+    if !bytes.len().is_multiple_of(2) {
         return Err(Error::InvalidWkb("hex string has odd length".into()));
     }
-    (0..hex.len())
-        .step_by(2)
-        .map(|i| {
-            u8::from_str_radix(&hex[i..i + 2], 16)
-                .map_err(|_| Error::InvalidWkb(format!("invalid hex byte at position {i}")))
+    bytes
+        .chunks(2)
+        .enumerate()
+        .map(|(idx, pair)| {
+            let hi = parse_hex_nibble(pair[0]).ok_or_else(|| {
+                Error::InvalidWkb(format!("invalid hex byte at position {}", idx * 2))
+            })?;
+            let lo = parse_hex_nibble(pair[1]).ok_or_else(|| {
+                Error::InvalidWkb(format!("invalid hex byte at position {}", idx * 2))
+            })?;
+            Ok((hi << 4) | lo)
         })
         .collect()
+}
+
+fn parse_hex_nibble(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'f' => Some(b - b'a' + 10),
+        b'A'..=b'F' => Some(b - b'A' + 10),
+        _ => None,
+    }
 }

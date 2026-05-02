@@ -107,7 +107,7 @@ fn text_to_wkb(text: &str, srid: Option<Bound<'_, PyAny>>) -> PyResult<Vec<u8>> 
 /// - ``False``: always strip the ``SRID=N;`` prefix from the output.
 /// - integer: always prepend ``SRID=N;``, overriding whatever the input contains.
 #[pyfunction]
-#[pyo3(signature = (text, srid=None, normalize_wkt=true))]
+#[pyo3(signature = (text, srid=None, normalize_wkt=false))]
 fn text_to_wkt(
     text: &str,
     srid: Option<Bound<'_, PyAny>>,
