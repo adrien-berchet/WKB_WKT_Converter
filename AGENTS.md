@@ -21,7 +21,8 @@ pytest                           # run Python binding tests
 
 # Python binding coverage (instruments Rust code via LLVM when called from Python)
 source <(cargo llvm-cov show-env --export-prefix)
-maturin develop
+maturin build
+pip install --force-reinstall target/wheels/*.whl
 pytest
 cargo llvm-cov report --package wkb_wkt_converter_py --fail-under-lines 100
 ```
