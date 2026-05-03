@@ -464,3 +464,52 @@ fn set_srid_noop_when_srid_already_matches() {
     // Verify the round-trip still produces the correct WKT.
     assert_eq!(wkb_to_wkt(&result).unwrap(), "SRID=4326;POINT (1 2)");
 }
+
+// ── Fix 1: ISO dimensional types and collection types fall back to round-trip ──
+
+#[test]
+fn strip_iso_xyz_point_normalizes_to_ewkb() {
+    // ISO WKB POINT Z uses type code 1001; the fast path must not pass it
+    // through — it falls back to the round-trip which normalises to EWKB.
+    const ISO_XYZ: &str = "01E9030000000000000000F03F00000000000000400000000000000840";
+    let wkb = text_to_wkb(ISO_XYZ, SridMode::Strip).unwrap();
+    assert_eq!(wkb_to_wkt(&wkb).unwrap(), "POINT Z (1 2 3)");
+    // EWKB POINT Z type word in LE is 0x80000001 → bytes [01, 00, 00, 80]
+    assert_eq!(&wkb[1..5], &[0x01, 0x00, 0x00, 0x80]);
+}
+
+#[test]
+fn set_iso_xyz_point_normalizes_to_ewkb_with_srid() {
+    const ISO_XYZ: &str = "01E9030000000000000000F03F00000000000000400000000000000840";
+    let wkb = text_to_wkb(ISO_XYZ, SridMode::Set(4326)).unwrap();
+    assert_eq!(wkb_to_wkt(&wkb).unwrap(), "SRID=4326;POINT Z (1 2 3)");
+}
+
+#[test]
+fn strip_geometry_collection_removes_nested_srids() {
+    const NESTED_SRID_GC: &str = concat!(
+        "0107000020E6100000", // GC, SRID=4326
+        "01000000",           // 1 sub-geometry
+        "01",                 // sub-geom LE marker
+        "01000020",           // POINT with SRID flag
+        "E6100000",           // SRID=4326
+        "000000000000F03F",   // x=1.0
+        "0000000000000040",   // y=2.0
+    );
+    let wkb = text_to_wkb(NESTED_SRID_GC, SridMode::Strip).unwrap();
+    // Full round-trip strips both the outer SRID and the inner nested SRID.
+    assert_eq!(
+        wkb_to_wkt(&wkb).unwrap(),
+        "GEOMETRYCOLLECTION (POINT (1 2))"
+    );
+}
+
+// ── Fix 2: Invalid SRID prefix errors under SridMode::Set (WKT path) ──────────
+
+#[test]
+fn set_srid_with_invalid_wkt_srid_prefix_errors() {
+    // Old code silently accepted SRID=abc; under Set because it stripped the
+    // prefix without validating it. The fix validates via wkt_to_wkb_split_srid.
+    assert!(text_to_wkb("SRID=abc;POINT (1 2)", SridMode::Set(4326)).is_err());
+    assert!(text_to_hex_wkb("SRID=abc;POINT (1 2)", SridMode::Set(4326)).is_err());
+}

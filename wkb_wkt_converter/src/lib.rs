@@ -6,7 +6,7 @@ mod wkt_to_wkb;
 
 use std::borrow::Cow;
 
-use types::EWKB_SRID;
+use types::{EWKB_M, EWKB_SRID, EWKB_Z};
 
 pub use error::{Error, Result};
 pub use types::{Dimension, GeomType};
@@ -110,7 +110,16 @@ pub fn text_to_wkb(text: &str, srid: SridMode) -> Result<Vec<u8>> {
                     }
                 }
             } else {
-                wkt_to_wkb(&format!("SRID={srid_val};{}", strip_ewkt_prefix(trimmed)))
+                // wkt_to_wkb_split_srid validates the full WKT including any SRID= prefix.
+                let (wkb, _) = wkt_to_wkb_split_srid(trimmed)?;
+                // wkb is canonical LE EWKB without embedded SRID; inject srid_val.
+                let type_u32 = u32::from_le_bytes(wkb[1..5].try_into().unwrap());
+                let mut out = Vec::with_capacity(wkb.len() + 4);
+                out.push(1u8);
+                out.extend_from_slice(&(type_u32 | EWKB_SRID).to_le_bytes());
+                out.extend_from_slice(&srid_val.to_le_bytes());
+                out.extend_from_slice(&wkb[5..]);
+                Ok(out)
             }
         }
     }
@@ -330,19 +339,23 @@ fn decode_hex(hex: &str) -> Result<Vec<u8>> {
 ///
 /// Returns `None` when the bytes are not recognisable as little-endian EWKB
 /// (too short, big-endian marker, or SRID flag set but fewer than 9 bytes
-/// available).  The caller should then fall back to a full WKB→WKT→WKB
-/// round-trip, which handles big-endian input and normalises to LE output.
-///
-/// # Limitations
-///
-/// Only the outermost WKB header is inspected; sub-geometries that embed their
-/// own EWKB SRID headers (rare in practice) will have those inner SRIDs left
-/// untouched.
+/// available), or when the base geometry type is > 3 (collection types 4–7 or
+/// ISO-dimensional codes > 7).  In those cases the caller should fall back to a
+/// full WKB→WKT→WKB round-trip, which normalises type codes, handles big-endian
+/// input, and strips nested SRID headers in sub-geometries.
 fn try_strip_srid_from_le_wkb(bytes: &[u8]) -> Option<Cow<'_, [u8]>> {
     if bytes.len() < 5 || bytes[0] != 1 {
         return None;
     }
     let type_u32 = u32::from_le_bytes(bytes[1..5].try_into().unwrap());
+    // Strip all EWKB flag bits to get the bare geometry-type code.
+    // Values > 3 are either collection types (4-7) or ISO-dimensional codes (>7);
+    // fall back to the round-trip for both so we normalise type codes and handle
+    // nested SRID headers correctly.
+    let base_geom_type = type_u32 & !(EWKB_Z | EWKB_M | EWKB_SRID) & 0x0000_FFFF;
+    if base_geom_type > 3 {
+        return None;
+    }
     if type_u32 & EWKB_SRID == 0 {
         // No SRID present — return a borrow of the input unchanged.
         return Some(Cow::Borrowed(bytes));
@@ -361,18 +374,25 @@ fn try_strip_srid_from_le_wkb(bytes: &[u8]) -> Option<Cow<'_, [u8]>> {
 /// Inject or replace the SRID in a little-endian EWKB byte slice without
 /// parsing coordinates.
 ///
-/// Returns `None` under the same conditions as [`try_strip_srid_from_le_wkb`].
-///
-/// # Limitations
-///
-/// Only the outermost WKB header is inspected; sub-geometries that embed their
-/// own EWKB SRID headers (rare in practice) will have those inner SRIDs left
-/// untouched.
+/// Returns `None` when the bytes are not recognisable as little-endian EWKB
+/// (too short, big-endian marker, or SRID flag set but fewer than 9 bytes
+/// available), or when the base geometry type is > 3 (collection types 4–7 or
+/// ISO-dimensional codes > 7).  In those cases the caller should fall back to a
+/// full WKB→WKT→WKB round-trip, which normalises type codes, handles big-endian
+/// input, and strips nested SRID headers in sub-geometries.
 fn try_set_srid_in_le_wkb(bytes: &[u8], srid: u32) -> Option<Cow<'_, [u8]>> {
     if bytes.len() < 5 || bytes[0] != 1 {
         return None;
     }
     let type_u32 = u32::from_le_bytes(bytes[1..5].try_into().unwrap());
+    // Strip all EWKB flag bits to get the bare geometry-type code.
+    // Values > 3 are either collection types (4-7) or ISO-dimensional codes (>7);
+    // fall back to the round-trip for both so we normalise type codes and handle
+    // nested SRID headers correctly.
+    let base_geom_type = type_u32 & !(EWKB_Z | EWKB_M | EWKB_SRID) & 0x0000_FFFF;
+    if base_geom_type > 3 {
+        return None;
+    }
     if type_u32 & EWKB_SRID != 0 {
         // SRID already present — check if it already equals the requested SRID.
         if bytes.len() < 9 {

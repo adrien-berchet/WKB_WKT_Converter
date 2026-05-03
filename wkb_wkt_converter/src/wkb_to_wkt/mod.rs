@@ -7,7 +7,7 @@ use crate::error::Result;
 
 pub(crate) fn convert(wkb: &[u8]) -> Result<String> {
     let mut reader = reader::WkbReader::new(wkb);
-    let mut builder = builder::WktBuilder::with_capacity(wkb.len().saturating_mul(3));
+    let mut builder = builder::WktBuilder::with_capacity(wkb.len().saturating_mul(3).min(16 << 20));
     let srid = reader.read_geometry(&mut builder)?;
     if let Some(srid) = srid {
         let body = builder.finish();
@@ -21,7 +21,7 @@ pub(crate) fn convert(wkb: &[u8]) -> Result<String> {
 
 pub(crate) fn convert_split_srid(wkb: &[u8]) -> Result<(String, Option<u32>)> {
     let mut reader = reader::WkbReader::new(wkb);
-    let mut builder = builder::WktBuilder::with_capacity(wkb.len().saturating_mul(3));
+    let mut builder = builder::WktBuilder::with_capacity(wkb.len().saturating_mul(3).min(16 << 20));
     let srid = reader.read_geometry(&mut builder)?;
     Ok((builder.finish(), srid))
 }
