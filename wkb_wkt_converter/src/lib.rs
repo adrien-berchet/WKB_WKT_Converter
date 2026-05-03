@@ -349,11 +349,11 @@ fn try_strip_srid_from_le_wkb(bytes: &[u8]) -> Option<Cow<'_, [u8]>> {
     }
     let type_u32 = u32::from_le_bytes(bytes[1..5].try_into().unwrap());
     // Strip all EWKB flag bits to get the bare geometry-type code.
-    // Values > 3 are either collection types (4-7) or ISO-dimensional codes (>7);
-    // fall back to the round-trip for both so we normalise type codes and handle
-    // nested SRID headers correctly.
+    // Only Point/LineString/Polygon (1–3) use the fast path; collection types
+    // (4–7), ISO-dimensional codes (>7), and invalid codes (0) all fall back
+    // to the round-trip so type codes are normalised and nested SRIDs handled.
     let base_geom_type = type_u32 & !(EWKB_Z | EWKB_M | EWKB_SRID) & 0x0000_FFFF;
-    if base_geom_type > 3 {
+    if !(1..=3).contains(&base_geom_type) {
         return None;
     }
     if type_u32 & EWKB_SRID == 0 {
@@ -386,11 +386,11 @@ fn try_set_srid_in_le_wkb(bytes: &[u8], srid: u32) -> Option<Cow<'_, [u8]>> {
     }
     let type_u32 = u32::from_le_bytes(bytes[1..5].try_into().unwrap());
     // Strip all EWKB flag bits to get the bare geometry-type code.
-    // Values > 3 are either collection types (4-7) or ISO-dimensional codes (>7);
-    // fall back to the round-trip for both so we normalise type codes and handle
-    // nested SRID headers correctly.
+    // Only Point/LineString/Polygon (1–3) use the fast path; collection types
+    // (4–7), ISO-dimensional codes (>7), and invalid codes (0) all fall back
+    // to the round-trip so type codes are normalised and nested SRIDs handled.
     let base_geom_type = type_u32 & !(EWKB_Z | EWKB_M | EWKB_SRID) & 0x0000_FFFF;
-    if base_geom_type > 3 {
+    if !(1..=3).contains(&base_geom_type) {
         return None;
     }
     if type_u32 & EWKB_SRID != 0 {
