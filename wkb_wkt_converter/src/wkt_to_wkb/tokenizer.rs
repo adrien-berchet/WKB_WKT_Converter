@@ -74,76 +74,54 @@ impl<'a> Tokenizer<'a> {
             .copied()
             .map(|b| b.to_ascii_uppercase());
         let (geom_type, keyword_len) = match first {
-            Some(b'G') => {
+            Some(b'G')
                 if rest
                     .get(..18)
-                    .is_some_and(|s| s.eq_ignore_ascii_case("GEOMETRYCOLLECTION"))
-                {
-                    (GeomType::GeometryCollection, 18)
-                } else {
-                    return Err(Error::InvalidWkt(format!(
-                        "unknown geometry type at position {}: {:?}",
-                        self.pos,
-                        &rest[..rest.len().min(20)]
-                    )));
-                }
+                    .is_some_and(|s| s.eq_ignore_ascii_case("GEOMETRYCOLLECTION")) =>
+            {
+                (GeomType::GeometryCollection, 18)
             }
-            Some(b'M') => {
+            Some(b'M')
                 if rest
                     .get(..15)
-                    .is_some_and(|s| s.eq_ignore_ascii_case("MULTILINESTRING"))
-                {
-                    (GeomType::MultiLineString, 15)
-                } else if rest
-                    .get(..12)
-                    .is_some_and(|s| s.eq_ignore_ascii_case("MULTIPOLYGON"))
-                {
-                    (GeomType::MultiPolygon, 12)
-                } else if rest
-                    .get(..10)
-                    .is_some_and(|s| s.eq_ignore_ascii_case("MULTIPOINT"))
-                {
-                    (GeomType::MultiPoint, 10)
-                } else {
-                    return Err(Error::InvalidWkt(format!(
-                        "unknown geometry type at position {}: {:?}",
-                        self.pos,
-                        &rest[..rest.len().min(20)]
-                    )));
-                }
+                    .is_some_and(|s| s.eq_ignore_ascii_case("MULTILINESTRING")) =>
+            {
+                (GeomType::MultiLineString, 15)
             }
-            Some(b'L') => {
+            Some(b'M')
+                if rest
+                    .get(..12)
+                    .is_some_and(|s| s.eq_ignore_ascii_case("MULTIPOLYGON")) =>
+            {
+                (GeomType::MultiPolygon, 12)
+            }
+            Some(b'M')
                 if rest
                     .get(..10)
-                    .is_some_and(|s| s.eq_ignore_ascii_case("LINESTRING"))
-                {
-                    (GeomType::LineString, 10)
-                } else {
-                    return Err(Error::InvalidWkt(format!(
-                        "unknown geometry type at position {}: {:?}",
-                        self.pos,
-                        &rest[..rest.len().min(20)]
-                    )));
-                }
+                    .is_some_and(|s| s.eq_ignore_ascii_case("MULTIPOINT")) =>
+            {
+                (GeomType::MultiPoint, 10)
             }
-            Some(b'P') => {
+            Some(b'L')
+                if rest
+                    .get(..10)
+                    .is_some_and(|s| s.eq_ignore_ascii_case("LINESTRING")) =>
+            {
+                (GeomType::LineString, 10)
+            }
+            Some(b'P')
                 if rest
                     .get(..7)
-                    .is_some_and(|s| s.eq_ignore_ascii_case("POLYGON"))
-                {
-                    (GeomType::Polygon, 7)
-                } else if rest
+                    .is_some_and(|s| s.eq_ignore_ascii_case("POLYGON")) =>
+            {
+                (GeomType::Polygon, 7)
+            }
+            Some(b'P')
+                if rest
                     .get(..5)
-                    .is_some_and(|s| s.eq_ignore_ascii_case("POINT"))
-                {
-                    (GeomType::Point, 5)
-                } else {
-                    return Err(Error::InvalidWkt(format!(
-                        "unknown geometry type at position {}: {:?}",
-                        self.pos,
-                        &rest[..rest.len().min(20)]
-                    )));
-                }
+                    .is_some_and(|s| s.eq_ignore_ascii_case("POINT")) =>
+            {
+                (GeomType::Point, 5)
             }
             _ => {
                 return Err(Error::InvalidWkt(format!(
