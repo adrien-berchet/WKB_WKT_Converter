@@ -16,8 +16,8 @@ impl<'a> Tokenizer<'a> {
     }
 
     fn skip_whitespace(&mut self) {
-        let n = self.rest().len() - self.rest().trim_start().len();
-        self.pos += n;
+        let rest = self.rest();
+        self.pos += rest.len() - rest.trim_start().len();
     }
 
     fn peek_nonws_char(&mut self) -> Option<char> {
@@ -67,29 +67,91 @@ impl<'a> Tokenizer<'a> {
     pub fn read_type_and_dim(&mut self) -> Result<(GeomType, Dimension)> {
         self.skip_whitespace();
         let rest = self.rest();
-        let upper = rest.to_ascii_uppercase();
 
-        // Match longest keyword first to avoid POINT matching MULTIPOINT.
-        let (geom_type, keyword_len) = if upper.starts_with("GEOMETRYCOLLECTION") {
-            (GeomType::GeometryCollection, 18)
-        } else if upper.starts_with("MULTILINESTRING") {
-            (GeomType::MultiLineString, 15)
-        } else if upper.starts_with("MULTIPOLYGON") {
-            (GeomType::MultiPolygon, 12)
-        } else if upper.starts_with("MULTIPOINT") {
-            (GeomType::MultiPoint, 10)
-        } else if upper.starts_with("LINESTRING") {
-            (GeomType::LineString, 10)
-        } else if upper.starts_with("POLYGON") {
-            (GeomType::Polygon, 7)
-        } else if upper.starts_with("POINT") {
-            (GeomType::Point, 5)
-        } else {
-            return Err(Error::InvalidWkt(format!(
-                "unknown geometry type at position {}: {:?}",
-                self.pos,
-                &rest[..rest.len().min(20)]
-            )));
+        let first = rest
+            .as_bytes()
+            .first()
+            .copied()
+            .map(|b| b.to_ascii_uppercase());
+        let (geom_type, keyword_len) = match first {
+            Some(b'G') => {
+                if rest
+                    .get(..18)
+                    .is_some_and(|s| s.eq_ignore_ascii_case("GEOMETRYCOLLECTION"))
+                {
+                    (GeomType::GeometryCollection, 18)
+                } else {
+                    return Err(Error::InvalidWkt(format!(
+                        "unknown geometry type at position {}: {:?}",
+                        self.pos,
+                        &rest[..rest.len().min(20)]
+                    )));
+                }
+            }
+            Some(b'M') => {
+                if rest
+                    .get(..15)
+                    .is_some_and(|s| s.eq_ignore_ascii_case("MULTILINESTRING"))
+                {
+                    (GeomType::MultiLineString, 15)
+                } else if rest
+                    .get(..12)
+                    .is_some_and(|s| s.eq_ignore_ascii_case("MULTIPOLYGON"))
+                {
+                    (GeomType::MultiPolygon, 12)
+                } else if rest
+                    .get(..10)
+                    .is_some_and(|s| s.eq_ignore_ascii_case("MULTIPOINT"))
+                {
+                    (GeomType::MultiPoint, 10)
+                } else {
+                    return Err(Error::InvalidWkt(format!(
+                        "unknown geometry type at position {}: {:?}",
+                        self.pos,
+                        &rest[..rest.len().min(20)]
+                    )));
+                }
+            }
+            Some(b'L') => {
+                if rest
+                    .get(..10)
+                    .is_some_and(|s| s.eq_ignore_ascii_case("LINESTRING"))
+                {
+                    (GeomType::LineString, 10)
+                } else {
+                    return Err(Error::InvalidWkt(format!(
+                        "unknown geometry type at position {}: {:?}",
+                        self.pos,
+                        &rest[..rest.len().min(20)]
+                    )));
+                }
+            }
+            Some(b'P') => {
+                if rest
+                    .get(..7)
+                    .is_some_and(|s| s.eq_ignore_ascii_case("POLYGON"))
+                {
+                    (GeomType::Polygon, 7)
+                } else if rest
+                    .get(..5)
+                    .is_some_and(|s| s.eq_ignore_ascii_case("POINT"))
+                {
+                    (GeomType::Point, 5)
+                } else {
+                    return Err(Error::InvalidWkt(format!(
+                        "unknown geometry type at position {}: {:?}",
+                        self.pos,
+                        &rest[..rest.len().min(20)]
+                    )));
+                }
+            }
+            _ => {
+                return Err(Error::InvalidWkt(format!(
+                    "unknown geometry type at position {}: {:?}",
+                    self.pos,
+                    &rest[..rest.len().min(20)]
+                )));
+            }
         };
 
         self.pos += keyword_len;
@@ -107,13 +169,15 @@ impl<'a> Tokenizer<'a> {
         }
         self.skip_whitespace();
         let rest = self.rest();
-        let upper2 = rest[..rest.len().min(2)].to_ascii_uppercase();
+        let bytes = rest.as_bytes();
+        let b0 = bytes.first().copied().map(|b| b.to_ascii_uppercase());
+        let b1 = bytes.get(1).copied().map(|b| b.to_ascii_uppercase());
 
-        let (dim, len) = if upper2 == "ZM" && word_ends_at(rest, 2) {
+        let (dim, len) = if b0 == Some(b'Z') && b1 == Some(b'M') && word_ends_at(rest, 2) {
             (Dimension::XYZM, 2)
-        } else if upper2.starts_with('Z') && word_ends_at(rest, 1) {
+        } else if b0 == Some(b'Z') && word_ends_at(rest, 1) {
             (Dimension::XYZ, 1)
-        } else if upper2.starts_with('M') && word_ends_at(rest, 1) {
+        } else if b0 == Some(b'M') && word_ends_at(rest, 1) {
             (Dimension::XYM, 1)
         } else {
             // No dim tag — restore position (was whitespace that belongs to the caller)
@@ -131,7 +195,9 @@ impl<'a> Tokenizer<'a> {
         let rest = self.rest();
         // Consume sign, digits, decimal point, and exponent.
         let end = rest
-            .find(|c: char| !matches!(c, '0'..='9' | '.' | 'e' | 'E' | '+' | '-'))
+            .as_bytes()
+            .iter()
+            .position(|&b| !matches!(b, b'0'..=b'9' | b'.' | b'e' | b'E' | b'+' | b'-'))
             .unwrap_or(rest.len());
         if end == 0 {
             return Err(Error::InvalidWkt(format!(
@@ -209,8 +275,11 @@ impl<'a> Tokenizer<'a> {
     pub fn read_empty_or_lparen(&mut self) -> Result<bool> {
         self.skip_whitespace();
         let rest = self.rest();
-        let upper = rest[..rest.len().min(5)].to_ascii_uppercase();
-        if upper == "EMPTY" && word_ends_at(rest, 5) {
+        if rest
+            .get(..5)
+            .is_some_and(|s| s.eq_ignore_ascii_case("EMPTY"))
+            && word_ends_at(rest, 5)
+        {
             self.pos += 5;
             Ok(true)
         } else if rest.starts_with('(') {

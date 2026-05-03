@@ -10,7 +10,7 @@ use writer::WkbWriter;
 pub(crate) fn convert(wkt: &str) -> Result<Vec<u8>> {
     let mut tok = Tokenizer::new(wkt);
     let srid = tok.read_srid_prefix()?;
-    let mut writer = WkbWriter::new();
+    let mut writer = WkbWriter::with_capacity(wkt.len() / 4);
     parse_geometry(&mut tok, &mut writer, srid)?;
     tok.expect_eof()?;
     Ok(writer.into_bytes())
@@ -20,7 +20,7 @@ pub(crate) fn convert(wkt: &str) -> Result<Vec<u8>> {
 pub(crate) fn convert_split_srid(wkt: &str) -> Result<(Vec<u8>, Option<u32>)> {
     let mut tok = Tokenizer::new(wkt);
     let srid = tok.read_srid_prefix()?;
-    let mut writer = WkbWriter::new();
+    let mut writer = WkbWriter::with_capacity(wkt.len() / 4);
     parse_geometry(&mut tok, &mut writer, None)?;
     tok.expect_eof()?;
     Ok((writer.into_bytes(), srid))
@@ -57,7 +57,7 @@ fn parse_point(
         }
         return Ok(());
     }
-    // '(' already consumed by read_empty_or_lparen returning false... wait, it does NOT consume '('
+    // read_empty_or_lparen peeked '(' without consuming it; consume it now.
     tok.expect_lparen()?;
     for _ in 0..dim.coord_size() {
         writer.write_f64(tok.read_number()?);

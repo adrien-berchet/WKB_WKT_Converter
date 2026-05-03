@@ -113,6 +113,7 @@ pub fn text_to_wkb(text: &str, srid: SridMode) -> Result<Vec<u8>> {
                 // wkt_to_wkb_split_srid validates the full WKT including any SRID= prefix.
                 let (wkb, _) = wkt_to_wkb_split_srid(trimmed)?;
                 // wkb is canonical LE EWKB without embedded SRID; inject srid_val.
+                // wkt_to_wkb_split_srid always returns valid LE WKB with len >= 5 on success.
                 let type_u32 = u32::from_le_bytes(wkb[1..5].try_into().unwrap());
                 let mut out = Vec::with_capacity(wkb.len() + 4);
                 out.push(1u8);
@@ -235,8 +236,8 @@ fn strip_ewkt_prefix(wkt: &str) -> &str {
         .get(..5)
         .is_some_and(|p| p.eq_ignore_ascii_case("SRID="))
     {
-        if let Some(pos) = wkt.find(';') {
-            return wkt[pos + 1..].trim_start();
+        if let Some(rel) = wkt[5..].find(';') {
+            return wkt[6 + rel..].trim_start();
         }
     }
     wkt

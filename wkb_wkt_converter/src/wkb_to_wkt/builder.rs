@@ -35,7 +35,7 @@ impl WktBuilder {
 }
 
 fn push_f64(buf: &mut String, v: f64) {
-    if v.is_finite() && v == v.trunc() && v.abs() < 1e15 {
+    if v.is_finite() && v != 0.0 && v == v.trunc() && v.abs() < 1e15 {
         write!(buf, "{}", v as i64).unwrap();
     } else {
         write!(buf, "{v}").unwrap();

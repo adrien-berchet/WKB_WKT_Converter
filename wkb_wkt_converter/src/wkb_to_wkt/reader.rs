@@ -322,16 +322,15 @@ impl<'a> WkbReader<'a> {
         num_pts: usize,
     ) -> Result<()> {
         let n = dim.coord_size();
-        let mut coords = Vec::with_capacity(n);
+        let mut coords = [0f64; 4];
         for i in 0..num_pts {
             if i > 0 {
                 out.push_str(", ");
             }
-            coords.clear();
-            for _ in 0..n {
-                coords.push(self.read_f64()?);
+            for item in coords.iter_mut().take(n) {
+                *item = self.read_f64()?;
             }
-            out.push_coord(&coords);
+            out.push_coord(&coords[..n]);
         }
         Ok(())
     }
