@@ -248,10 +248,10 @@ fn strip_ewkt_prefix(wkt: &str) -> &str {
 /// because it avoids invoking the format machinery for every byte.
 fn encode_hex(bytes: &[u8]) -> String {
     const HEX: &[u8; 16] = b"0123456789ABCDEF";
-    let mut out = vec![0u8; bytes.len() * 2];
-    for (i, &b) in bytes.iter().enumerate() {
-        out[2 * i] = HEX[(b >> 4) as usize];
-        out[2 * i + 1] = HEX[(b & 0xF) as usize];
+    let mut out = Vec::with_capacity(bytes.len().saturating_mul(2));
+    for &b in bytes {
+        out.push(HEX[(b >> 4) as usize]);
+        out.push(HEX[(b & 0xF) as usize]);
     }
     // SAFETY: every byte written is an ASCII hex digit (0–9, A–F).
     unsafe { String::from_utf8_unchecked(out) }
