@@ -626,6 +626,12 @@ fn text_to_hex_wkb_auto_uppercases_without_wkb_validation() {
 }
 
 #[test]
+fn text_to_hex_wkb_auto_invalid_hex_falls_back_to_wkt_errors() {
+    assert!(text_to_hex_wkb("ZZ", SridMode::Auto).is_err());
+    assert!(text_to_hex_wkb("0Z", SridMode::Auto).is_err());
+}
+
+#[test]
 fn set_srid_noop_when_srid_already_matches() {
     // Calling text_to_wkb with SridMode::Set(4326) on hex EWKB that already
     // has SRID=4326 should return the same WKB bytes (Cow::Borrowed fast path).
