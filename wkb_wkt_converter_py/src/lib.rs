@@ -79,6 +79,8 @@ fn hex_wkb_to_wkt(hex: &str) -> PyResult<String> {
 /// hex-encoded EWKB string.
 /// The input format is detected automatically: non-empty, even-length all-hex
 /// text is treated as hex WKB; anything else is treated as WKT.
+/// With ``srid=None``, hex input is validated as hex text and uppercased
+/// without WKB structure validation.
 ///
 /// *srid* controls SRID handling in the output — see ``text_to_wkb``.
 #[pyfunction]
@@ -93,8 +95,12 @@ fn text_to_hex_wkb(text: &str, srid: Option<Bound<'_, PyAny>>) -> PyResult<Strin
 ///
 /// *srid* controls SRID handling in the output:
 /// - ``None`` (default): mirror the input — SRID is kept if present, absent if not.
+///   Hex WKB bytes are returned as-is without WKB structure validation.
 /// - ``False``: always strip the SRID from the output.
 /// - integer: always embed this SRID, overriding whatever the input contains.
+///
+/// For ``False`` and integer SRIDs, hex WKB input is validated; malformed
+/// coordinate values and trailing top-level bytes raise ``ValueError``.
 #[pyfunction]
 #[pyo3(signature = (text, srid=None))]
 fn text_to_wkb(text: &str, srid: Option<Bound<'_, PyAny>>) -> PyResult<Vec<u8>> {

@@ -15,6 +15,7 @@ Exposes both a Rust API and Python bindings (via PyO3/maturin).
 - **SRID** preservation (EWKT ↔ EWKB); option to split SRID from geometry
 - Big-endian and little-endian WKB input; little-endian EWKB output
 - `EMPTY` geometry support
+- Per-member `EMPTY` support inside `MULTI*` geometries
 - Hex WKB convenience helpers
 - Strict error handling: malformed input returns a descriptive error
 
@@ -78,6 +79,20 @@ pub fn text_to_hex_wkb(text: &str, srid: SridMode) -> Result<String>
 | `SridMode::Auto` | Mirror the input — SRID kept if present, absent if not |
 | `SridMode::Strip` | Always strip the SRID from the output |
 | `SridMode::Set(n)` | Always embed SRID `n`, overriding whatever the input contains |
+
+Validation notes:
+
+- WKT coordinates must be finite. WKB coordinate sequences also reject `NaN`
+  and infinities; the all-`NaN` Point encoding is still accepted as `POINT EMPTY`.
+- Validating WKB entry points reject trailing top-level bytes. The only hex
+  WKB paths that intentionally skip WKB structure validation are
+  `text_to_wkb(hex, SridMode::Auto)` and `text_to_hex_wkb(hex, SridMode::Auto)`;
+  the latter validates and uppercases the hex text only.
+- `GeometryCollection` dimension tags are not inherited by child geometries.
+  An XY collection may contain heterogeneous immediate children. A Z, M, or ZM
+  collection requires each immediate child to declare the same dimension.
+- WKT and WKB parsing reject geometry nesting beyond the implementation depth
+  limit of 128.
 
 `text_to_wkt` accepts a `normalize_wkt: bool` parameter.  When `true`, WKT
 input is normalised (canonical casing, spacing, coordinate formatting) via a
@@ -202,6 +217,11 @@ The `srid` keyword argument controls SRID handling in the output:
 | `None` *(default)* | Mirror the input — SRID kept if present, absent if not |
 | `False` | Always strip the SRID from the output |
 | `int` | Always embed this SRID, overriding whatever the input contains |
+
+Validation behavior matches the Rust API: non-finite coordinates are rejected
+except for all-`NaN` `POINT EMPTY` WKB; validating WKB paths reject trailing
+top-level bytes; only `text_to_wkb(hex, srid=None)` and
+`text_to_hex_wkb(hex, srid=None)` skip WKB structure validation for hex input.
 
 `text_to_wkt` accepts a `normalize_wkt` keyword argument (default `False`).
 When `True`, WKT input is normalised (canonical casing, spacing, coordinate

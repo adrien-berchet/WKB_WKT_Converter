@@ -2,6 +2,14 @@ use super::builder::WktBuilder;
 use crate::error::{Error, Result};
 use crate::types::{Dimension, GeomType, EWKB_M, EWKB_SRID, EWKB_Z};
 
+const MAX_GEOMETRY_DEPTH: usize = 128;
+
+#[derive(Debug, Clone, Copy)]
+struct GeometryHeader {
+    dim: Dimension,
+    srid: Option<u32>,
+}
+
 pub(super) struct WkbReader<'a> {
     data: &'a [u8],
     pos: usize,
@@ -118,12 +126,47 @@ impl<'a> WkbReader<'a> {
         Ok((geom_type, dim, srid))
     }
 
+    pub fn expect_eof(&self) -> Result<()> {
+        if self.remaining() == 0 {
+            Ok(())
+        } else {
+            Err(Error::InvalidWkb(format!(
+                "unexpected trailing data: {} bytes remaining",
+                self.remaining()
+            )))
+        }
+    }
+
     /// Reads one complete WKB geometry and appends its WKT representation to `out`.
     /// Returns the top-level SRID if the geometry was EWKB-encoded with one.
-    pub fn read_geometry(&mut self, out: &mut WktBuilder) -> Result<Option<u32>> {
+    pub fn read_geometry(
+        &mut self,
+        out: &mut WktBuilder,
+        include_srid_prefix: bool,
+    ) -> Result<Option<u32>> {
+        self.read_geometry_at_depth(out, include_srid_prefix, 0)
+            .map(|header| header.srid)
+    }
+
+    fn read_geometry_at_depth(
+        &mut self,
+        out: &mut WktBuilder,
+        include_srid_prefix: bool,
+        depth: usize,
+    ) -> Result<GeometryHeader> {
+        if depth >= MAX_GEOMETRY_DEPTH {
+            return Err(Error::InvalidWkb(format!(
+                "geometry nesting exceeds maximum depth of {MAX_GEOMETRY_DEPTH}"
+            )));
+        }
         self.read_byte_order()?;
         let (geom_type, dim, srid) = self.read_type()?;
 
+        if include_srid_prefix {
+            if let Some(srid) = srid {
+                out.push_srid_prefix(srid);
+            }
+        }
         out.push_str(geom_type.wkt_name());
         out.push_str(dim.wkt_tag());
 
@@ -131,13 +174,13 @@ impl<'a> WkbReader<'a> {
             GeomType::Point => self.read_point_body(out, dim)?,
             GeomType::LineString => self.read_linestring_body(out, dim)?,
             GeomType::Polygon => self.read_polygon_body(out, dim)?,
-            GeomType::MultiPoint => self.read_multi_point_body(out)?,
-            GeomType::MultiLineString => self.read_multi_linestring_body(out)?,
-            GeomType::MultiPolygon => self.read_multi_polygon_body(out)?,
-            GeomType::GeometryCollection => self.read_collection_body(out)?,
+            GeomType::MultiPoint => self.read_multi_point_body(out, dim)?,
+            GeomType::MultiLineString => self.read_multi_linestring_body(out, dim)?,
+            GeomType::MultiPolygon => self.read_multi_polygon_body(out, dim)?,
+            GeomType::GeometryCollection => self.read_collection_body(out, dim, depth)?,
         }
 
-        Ok(srid)
+        Ok(GeometryHeader { dim, srid })
     }
 
     fn read_point_body(&mut self, out: &mut WktBuilder, dim: Dimension) -> Result<()> {
@@ -150,6 +193,7 @@ impl<'a> WkbReader<'a> {
         if coords.iter().all(|v| v.is_nan()) {
             out.push_str(" EMPTY");
         } else {
+            validate_finite_coords(coords)?;
             out.push_str(" (");
             out.push_coord(coords);
             out.push_char(')');
@@ -191,7 +235,7 @@ impl<'a> WkbReader<'a> {
 
     /// Each sub-geometry in a MULTI* has its own full WKB header but is rendered
     /// in WKT without a type keyword: `((x y), (x y))`.
-    fn read_multi_point_body(&mut self, out: &mut WktBuilder) -> Result<()> {
+    fn read_multi_point_body(&mut self, out: &mut WktBuilder, parent_dim: Dimension) -> Result<()> {
         let num_geoms = self.read_u32()? as usize;
         if num_geoms == 0 {
             out.push_str(" EMPTY");
@@ -209,6 +253,7 @@ impl<'a> WkbReader<'a> {
                     "expected Point sub-geometry in MultiPoint, got type code {geom_type:?}",
                 )));
             }
+            validate_child_dimension(GeomType::MultiPoint, parent_dim, dim)?;
             let n = dim.coord_size();
             let mut coords = [0f64; 4];
             for item in coords.iter_mut().take(n) {
@@ -218,6 +263,7 @@ impl<'a> WkbReader<'a> {
             if coords.iter().all(|v| v.is_nan()) {
                 out.push_str("EMPTY");
             } else {
+                validate_finite_coords(coords)?;
                 out.push_char('(');
                 out.push_coord(coords);
                 out.push_char(')');
@@ -227,7 +273,11 @@ impl<'a> WkbReader<'a> {
         Ok(())
     }
 
-    fn read_multi_linestring_body(&mut self, out: &mut WktBuilder) -> Result<()> {
+    fn read_multi_linestring_body(
+        &mut self,
+        out: &mut WktBuilder,
+        parent_dim: Dimension,
+    ) -> Result<()> {
         let num_geoms = self.read_u32()? as usize;
         if num_geoms == 0 {
             out.push_str(" EMPTY");
@@ -245,6 +295,7 @@ impl<'a> WkbReader<'a> {
                     "expected LineString sub-geometry in MultiLineString, got type code {geom_type:?}",
                 )));
             }
+            validate_child_dimension(GeomType::MultiLineString, parent_dim, dim)?;
             let num_pts = self.read_u32()? as usize;
             if num_pts == 0 {
                 out.push_str("EMPTY");
@@ -258,7 +309,11 @@ impl<'a> WkbReader<'a> {
         Ok(())
     }
 
-    fn read_multi_polygon_body(&mut self, out: &mut WktBuilder) -> Result<()> {
+    fn read_multi_polygon_body(
+        &mut self,
+        out: &mut WktBuilder,
+        parent_dim: Dimension,
+    ) -> Result<()> {
         let num_geoms = self.read_u32()? as usize;
         if num_geoms == 0 {
             out.push_str(" EMPTY");
@@ -276,6 +331,7 @@ impl<'a> WkbReader<'a> {
                     "expected Polygon sub-geometry in MultiPolygon, got type code {geom_type:?}",
                 )));
             }
+            validate_child_dimension(GeomType::MultiPolygon, parent_dim, dim)?;
             let num_rings = self.read_u32()? as usize;
             if num_rings == 0 {
                 out.push_str("EMPTY");
@@ -298,7 +354,12 @@ impl<'a> WkbReader<'a> {
     }
 
     /// GeometryCollection members are full WKT geometries with type keywords.
-    fn read_collection_body(&mut self, out: &mut WktBuilder) -> Result<()> {
+    fn read_collection_body(
+        &mut self,
+        out: &mut WktBuilder,
+        parent_dim: Dimension,
+        depth: usize,
+    ) -> Result<()> {
         let num_geoms = self.read_u32()? as usize;
         if num_geoms == 0 {
             out.push_str(" EMPTY");
@@ -309,7 +370,13 @@ impl<'a> WkbReader<'a> {
             if i > 0 {
                 out.push_str(", ");
             }
-            self.read_geometry(out)?;
+            let child = self.read_geometry_at_depth(out, false, depth + 1)?;
+            if parent_dim != Dimension::XY && child.dim != parent_dim {
+                return Err(Error::InvalidWkb(format!(
+                    "GeometryCollection {parent_dim:?} member has incompatible dimension {:?}",
+                    child.dim
+                )));
+            }
         }
         out.push_char(')');
         Ok(())
@@ -330,8 +397,31 @@ impl<'a> WkbReader<'a> {
             for item in coords.iter_mut().take(n) {
                 *item = self.read_f64()?;
             }
+            validate_finite_coords(&coords[..n])?;
             out.push_coord(&coords[..n]);
         }
         Ok(())
+    }
+}
+
+fn validate_finite_coords(coords: &[f64]) -> Result<()> {
+    if coords.iter().all(|v| v.is_finite()) {
+        Ok(())
+    } else {
+        Err(Error::InvalidWkb("non-finite coordinate value".into()))
+    }
+}
+
+fn validate_child_dimension(
+    parent_type: GeomType,
+    parent_dim: Dimension,
+    child_dim: Dimension,
+) -> Result<()> {
+    if child_dim == parent_dim {
+        Ok(())
+    } else {
+        Err(Error::InvalidWkb(format!(
+            "{parent_type:?} child has incompatible dimension {child_dim:?}; expected {parent_dim:?}"
+        )))
     }
 }

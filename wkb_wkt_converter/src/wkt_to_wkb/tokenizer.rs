@@ -28,8 +28,13 @@ impl<'a> Tokenizer<'a> {
     /// Reads `SRID=<n>;` prefix if present. Must be called before any other method.
     pub fn read_srid_prefix(&mut self) -> Result<Option<u32>> {
         self.skip_whitespace();
-        // Use a case-insensitive prefix check on the first 5 ASCII bytes
-        if self.rest().len() >= 5 && self.rest()[..5].eq_ignore_ascii_case("SRID=") {
+        // Use a case-insensitive prefix check on the first 5 ASCII bytes.
+        // `get` keeps malformed non-ASCII prefixes on the normal error path.
+        if self
+            .rest()
+            .get(..5)
+            .is_some_and(|p| p.eq_ignore_ascii_case("SRID="))
+        {
             self.pos += 5;
             let srid = self.read_uint()?;
             self.skip_whitespace();
@@ -74,60 +79,20 @@ impl<'a> Tokenizer<'a> {
             .copied()
             .map(|b| b.to_ascii_uppercase());
         let (geom_type, keyword_len) = match first {
-            Some(b'G')
-                if rest
-                    .get(..18)
-                    .is_some_and(|s| s.eq_ignore_ascii_case("GEOMETRYCOLLECTION")) =>
-            {
+            Some(b'G') if matches_word(rest, "GEOMETRYCOLLECTION") => {
                 (GeomType::GeometryCollection, 18)
             }
-            Some(b'M')
-                if rest
-                    .get(..15)
-                    .is_some_and(|s| s.eq_ignore_ascii_case("MULTILINESTRING")) =>
-            {
-                (GeomType::MultiLineString, 15)
-            }
-            Some(b'M')
-                if rest
-                    .get(..12)
-                    .is_some_and(|s| s.eq_ignore_ascii_case("MULTIPOLYGON")) =>
-            {
-                (GeomType::MultiPolygon, 12)
-            }
-            Some(b'M')
-                if rest
-                    .get(..10)
-                    .is_some_and(|s| s.eq_ignore_ascii_case("MULTIPOINT")) =>
-            {
-                (GeomType::MultiPoint, 10)
-            }
-            Some(b'L')
-                if rest
-                    .get(..10)
-                    .is_some_and(|s| s.eq_ignore_ascii_case("LINESTRING")) =>
-            {
-                (GeomType::LineString, 10)
-            }
-            Some(b'P')
-                if rest
-                    .get(..7)
-                    .is_some_and(|s| s.eq_ignore_ascii_case("POLYGON")) =>
-            {
-                (GeomType::Polygon, 7)
-            }
-            Some(b'P')
-                if rest
-                    .get(..5)
-                    .is_some_and(|s| s.eq_ignore_ascii_case("POINT")) =>
-            {
-                (GeomType::Point, 5)
-            }
+            Some(b'M') if matches_word(rest, "MULTILINESTRING") => (GeomType::MultiLineString, 15),
+            Some(b'M') if matches_word(rest, "MULTIPOLYGON") => (GeomType::MultiPolygon, 12),
+            Some(b'M') if matches_word(rest, "MULTIPOINT") => (GeomType::MultiPoint, 10),
+            Some(b'L') if matches_word(rest, "LINESTRING") => (GeomType::LineString, 10),
+            Some(b'P') if matches_word(rest, "POLYGON") => (GeomType::Polygon, 7),
+            Some(b'P') if matches_word(rest, "POINT") => (GeomType::Point, 5),
             _ => {
                 return Err(Error::InvalidWkt(format!(
                     "unknown geometry type at position {}: {:?}",
                     self.pos,
-                    &rest[..rest.len().min(20)]
+                    snippet(rest, 20)
                 )));
             }
         };
@@ -181,13 +146,19 @@ impl<'a> Tokenizer<'a> {
             return Err(Error::InvalidWkt(format!(
                 "expected number at position {}, got {:?}",
                 self.pos,
-                &rest[..rest.len().min(10)]
+                snippet(rest, 10)
             )));
         }
         let s = &rest[..end];
         let v = s.parse::<f64>().map_err(|_| {
             Error::InvalidWkt(format!("invalid number {:?} at position {}", s, self.pos))
         })?;
+        if !v.is_finite() {
+            return Err(Error::InvalidWkt(format!(
+                "non-finite coordinate {:?} at position {}",
+                s, self.pos
+            )));
+        }
         self.pos += end;
         Ok(v)
     }
@@ -246,27 +217,40 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
+    pub fn try_read_empty(&mut self) -> Result<bool> {
+        self.skip_whitespace();
+        let rest = self.rest();
+        if !rest
+            .get(..5)
+            .is_some_and(|s| s.eq_ignore_ascii_case("EMPTY"))
+        {
+            return Ok(false);
+        }
+        if word_ends_at(rest, 5) {
+            self.pos += 5;
+            Ok(true)
+        } else {
+            Err(Error::InvalidWkt(format!(
+                "expected delimiter after EMPTY at position {}",
+                self.pos + 5
+            )))
+        }
+    }
+
     /// Peeks at the next non-whitespace content:
-    /// - If it starts with `EMPTY` (followed by a non-alphabetic char or end), consumes it and returns `true`.
+    /// - If it is `EMPTY`, consumes it and returns `true`.
     /// - If it starts with `(`, does NOT consume and returns `false`.
     /// - Otherwise, returns an error.
     pub fn read_empty_or_lparen(&mut self) -> Result<bool> {
-        self.skip_whitespace();
-        let rest = self.rest();
-        if rest
-            .get(..5)
-            .is_some_and(|s| s.eq_ignore_ascii_case("EMPTY"))
-            && word_ends_at(rest, 5)
-        {
-            self.pos += 5;
+        if self.try_read_empty()? {
             Ok(true)
-        } else if rest.starts_with('(') {
+        } else if self.rest().starts_with('(') {
             Ok(false)
         } else {
             Err(Error::InvalidWkt(format!(
                 "expected 'EMPTY' or '(' at position {}, got {:?}",
                 self.pos,
-                &rest[..rest.len().min(10)]
+                snippet(self.rest(), 10)
             )))
         }
     }
@@ -279,15 +263,24 @@ impl<'a> Tokenizer<'a> {
             Err(Error::InvalidWkt(format!(
                 "unexpected trailing content at position {}: {:?}",
                 self.pos,
-                &self.rest()[..self.rest().len().min(20)]
+                snippet(self.rest(), 20)
             )))
         }
     }
 }
 
+fn matches_word(s: &str, word: &str) -> bool {
+    s.get(..word.len())
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case(word))
+        && word_ends_at(s, word.len())
+}
+
 fn word_ends_at(s: &str, offset: usize) -> bool {
-    s[offset..]
-        .chars()
-        .next()
+    s.get(offset..)
+        .and_then(|tail| tail.chars().next())
         .is_none_or(|c| !c.is_alphabetic())
+}
+
+fn snippet(s: &str, max_chars: usize) -> String {
+    s.chars().take(max_chars).collect()
 }
