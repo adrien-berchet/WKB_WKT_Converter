@@ -70,11 +70,11 @@ pub enum SridMode {
 /// - [`SridMode::Strip`]: always strip the SRID from the output.
 /// - [`SridMode::Set(n)`]: always embed SRID `n`, overriding any SRID in the input.
 ///
-/// **Note on validation:** for little-endian hex WKB input under `Strip` and `Set`, the
-/// geometry body is not parsed — only the EWKB header is inspected and rewritten.
-/// Structurally invalid coordinate data in an otherwise well-formed header passes through
-/// without error.  Big-endian or malformed-header input always falls back to a full
-/// parse round-trip which validates the geometry body.
+/// **Note on validation:** for little-endian Point, LineString, and Polygon hex
+/// WKB input under `Strip` and `Set`, the fast path rewrites only the EWKB header
+/// after checking the byte length implied by the simple geometry body.  Big-endian,
+/// collection, ISO-dimensional, or malformed simple input falls back to a full
+/// parse round-trip which validates and normalises the geometry body.
 pub fn text_to_wkb(text: &str, srid: SridMode) -> Result<Vec<u8>> {
     let trimmed = text.trim();
     match srid {
@@ -174,7 +174,7 @@ pub fn text_to_wkt(text: &str, srid: SridMode, normalize_wkt: bool) -> Result<St
         });
     }
 
-    // Single-pass hex detection and decoding (hex WKB is always normalised).
+    // Hex WKB is always decoded to normalised WKT.
     if let Some(decoded) = try_decode_hex(trimmed) {
         return match srid {
             SridMode::Auto => wkb_to_wkt(&decoded),
@@ -281,19 +281,27 @@ const fn build_hex_nibble_lut() -> [u8; 256] {
 }
 static HEX_NIBBLE_LUT: [u8; 256] = build_hex_nibble_lut();
 
-/// Try to decode `s` as a hex string in a single pass, combining detection and
-/// decoding.
+/// Try to decode `s` as a hex string, combining detection and decoding.
 ///
 /// Returns `None` if `s` is empty, has odd length, or contains any
-/// non-hexadecimal character.  This replaces the previous two-pass pattern of
-/// `is_hex_str(s)` followed by `decode_hex(s)`.
+/// non-hexadecimal character.  Allocation is delayed until the first byte pair
+/// has been proven to be valid hex, so obvious non-hex input avoids allocation
+/// while valid hex still decodes in one pass over the remaining pairs.
 fn try_decode_hex(s: &str) -> Option<Vec<u8>> {
     let bytes = s.as_bytes();
     if bytes.is_empty() || !bytes.len().is_multiple_of(2) {
         return None;
     }
+
+    let hi = HEX_NIBBLE_LUT[bytes[0] as usize];
+    let lo = HEX_NIBBLE_LUT[bytes[1] as usize];
+    if (hi | lo) > 0x0F {
+        return None;
+    }
+
     let mut out = Vec::with_capacity(bytes.len() / 2);
-    for chunk in bytes.chunks_exact(2) {
+    out.push((hi << 4) | lo);
+    for chunk in bytes[2..].chunks_exact(2) {
         let hi = HEX_NIBBLE_LUT[chunk[0] as usize];
         let lo = HEX_NIBBLE_LUT[chunk[1] as usize];
         if (hi | lo) > 0x0F {
@@ -335,39 +343,100 @@ fn decode_hex(hex: &str) -> Result<Vec<u8>> {
     Ok(out)
 }
 
-/// Strip the SRID from a little-endian EWKB byte slice without parsing
-/// coordinates.
-///
-/// Returns `None` when the bytes are not recognisable as little-endian EWKB
-/// (too short, big-endian marker, or SRID flag set but fewer than 9 bytes
-/// available), or when the base geometry type is > 3 (collection types 4–7 or
-/// ISO-dimensional codes > 7).  In those cases the caller should fall back to a
-/// full WKB→WKT→WKB round-trip, which normalises type codes, handles big-endian
-/// input, and strips nested SRID headers in sub-geometries.
-fn try_strip_srid_from_le_wkb(bytes: &[u8]) -> Option<Cow<'_, [u8]>> {
+struct LeFastPathHeader {
+    type_u32: u32,
+    canonical_type_without_srid: u32,
+}
+
+fn read_le_u32_at(bytes: &[u8], offset: usize) -> Option<u32> {
+    let end = offset.checked_add(4)?;
+    Some(u32::from_le_bytes(
+        bytes.get(offset..end)?.try_into().unwrap(),
+    ))
+}
+
+fn exact_simple_le_wkb_len(
+    bytes: &[u8],
+    body_start: usize,
+    base_geom_type: u32,
+    known_dim_flags: u32,
+) -> Option<usize> {
+    debug_assert!((1..=3).contains(&base_geom_type));
+    let coord_count =
+        2 + usize::from(known_dim_flags & EWKB_Z != 0) + usize::from(known_dim_flags & EWKB_M != 0);
+    let coord_bytes = coord_count.checked_mul(8)?;
+
+    if base_geom_type == 1 {
+        return body_start.checked_add(coord_bytes);
+    }
+
+    let mut pos = body_start.checked_add(4)?;
+    let count = usize::try_from(read_le_u32_at(bytes, body_start)?).ok()?;
+    if base_geom_type == 2 {
+        return pos.checked_add(count.checked_mul(coord_bytes)?);
+    }
+
+    for _ in 0..count {
+        let point_count = usize::try_from(read_le_u32_at(bytes, pos)?).ok()?;
+        pos = pos.checked_add(4)?;
+        pos = pos.checked_add(point_count.checked_mul(coord_bytes)?)?;
+    }
+    Some(pos)
+}
+
+fn try_read_le_fast_path_header(bytes: &[u8]) -> Option<LeFastPathHeader> {
     if bytes.len() < 5 || bytes[0] != 1 {
         return None;
     }
     let type_u32 = u32::from_le_bytes(bytes[1..5].try_into().unwrap());
-    // Strip all EWKB flag bits to get the bare geometry-type code.
-    // Only Point/LineString/Polygon (1–3) use the fast path; collection types
-    // (4–7), ISO-dimensional codes (>7), and invalid codes (0) all fall back
-    // to the round-trip so type codes are normalised and nested SRIDs handled.
+    let known_dim_flags = type_u32 & (EWKB_Z | EWKB_M);
+    // Strip all EWKB flag bits and unknown high bits to get the bare OGC type.
     let base_geom_type = type_u32 & !(EWKB_Z | EWKB_M | EWKB_SRID) & 0x0000_FFFF;
     if !(1..=3).contains(&base_geom_type) {
         return None;
     }
-    if type_u32 & EWKB_SRID == 0 {
-        // No SRID present — return a borrow of the input unchanged.
-        return Some(Cow::Borrowed(bytes));
-    }
-    if bytes.len() < 9 {
+
+    let body_start = if type_u32 & EWKB_SRID != 0 {
+        if bytes.len() < 9 {
+            return None;
+        }
+        9
+    } else {
+        5
+    };
+    if exact_simple_le_wkb_len(bytes, body_start, base_geom_type, known_dim_flags)? != bytes.len() {
         return None;
     }
-    let new_type = type_u32 & !EWKB_SRID;
+
+    Some(LeFastPathHeader {
+        type_u32,
+        canonical_type_without_srid: base_geom_type | known_dim_flags,
+    })
+}
+
+/// Strip the SRID from a little-endian EWKB byte slice without parsing
+/// coordinates.
+///
+/// Returns `None` when the bytes are not recognisable as little-endian EWKB
+/// (too short, big-endian marker, or mismatched simple body length), or when the
+/// base geometry type is > 3 (collection types 4–7 or ISO-dimensional codes >
+/// 7).  In those cases the caller should fall back to a full WKB→WKT→WKB
+/// round-trip, which normalises type codes, handles big-endian input, and strips
+/// nested SRID headers in sub-geometries.
+fn try_strip_srid_from_le_wkb(bytes: &[u8]) -> Option<Cow<'_, [u8]>> {
+    let header = try_read_le_fast_path_header(bytes)?;
+    if header.type_u32 & EWKB_SRID == 0 {
+        // No SRID present. Return a borrow only if the type word is already canonical.
+        if header.type_u32 == header.canonical_type_without_srid {
+            return Some(Cow::Borrowed(bytes));
+        }
+        let mut out = bytes.to_vec();
+        out[1..5].copy_from_slice(&header.canonical_type_without_srid.to_le_bytes());
+        return Some(Cow::Owned(out));
+    }
     let mut out = Vec::with_capacity(bytes.len() - 4);
     out.push(1u8); // little-endian marker
-    out.extend_from_slice(&new_type.to_le_bytes());
+    out.extend_from_slice(&header.canonical_type_without_srid.to_le_bytes());
     out.extend_from_slice(&bytes[9..]); // skip the 4 SRID bytes
     Some(Cow::Owned(out))
 }
@@ -376,42 +445,29 @@ fn try_strip_srid_from_le_wkb(bytes: &[u8]) -> Option<Cow<'_, [u8]>> {
 /// parsing coordinates.
 ///
 /// Returns `None` when the bytes are not recognisable as little-endian EWKB
-/// (too short, big-endian marker, or SRID flag set but fewer than 9 bytes
-/// available), or when the base geometry type is > 3 (collection types 4–7 or
-/// ISO-dimensional codes > 7).  In those cases the caller should fall back to a
-/// full WKB→WKT→WKB round-trip, which normalises type codes, handles big-endian
-/// input, and strips nested SRID headers in sub-geometries.
+/// (too short, big-endian marker, or mismatched simple body length), or when the
+/// base geometry type is > 3 (collection types 4–7 or ISO-dimensional codes >
+/// 7).  In those cases the caller should fall back to a full WKB→WKT→WKB
+/// round-trip, which normalises type codes, handles big-endian input, and strips
+/// nested SRID headers in sub-geometries.
 fn try_set_srid_in_le_wkb(bytes: &[u8], srid: u32) -> Option<Cow<'_, [u8]>> {
-    if bytes.len() < 5 || bytes[0] != 1 {
-        return None;
-    }
-    let type_u32 = u32::from_le_bytes(bytes[1..5].try_into().unwrap());
-    // Strip all EWKB flag bits to get the bare geometry-type code.
-    // Only Point/LineString/Polygon (1–3) use the fast path; collection types
-    // (4–7), ISO-dimensional codes (>7), and invalid codes (0) all fall back
-    // to the round-trip so type codes are normalised and nested SRIDs handled.
-    let base_geom_type = type_u32 & !(EWKB_Z | EWKB_M | EWKB_SRID) & 0x0000_FFFF;
-    if !(1..=3).contains(&base_geom_type) {
-        return None;
-    }
-    if type_u32 & EWKB_SRID != 0 {
+    let header = try_read_le_fast_path_header(bytes)?;
+    let canonical_type_with_srid = header.canonical_type_without_srid | EWKB_SRID;
+    if header.type_u32 & EWKB_SRID != 0 {
         // SRID already present — check if it already equals the requested SRID.
-        if bytes.len() < 9 {
-            return None;
-        }
         let stored_srid = u32::from_le_bytes(bytes[5..9].try_into().unwrap());
-        if stored_srid == srid {
+        if stored_srid == srid && header.type_u32 == canonical_type_with_srid {
             return Some(Cow::Borrowed(bytes));
         }
         let mut out = bytes.to_vec();
+        out[1..5].copy_from_slice(&canonical_type_with_srid.to_le_bytes());
         out[5..9].copy_from_slice(&srid.to_le_bytes());
         Some(Cow::Owned(out))
     } else {
         // No SRID yet — insert 4 bytes after the type code and set the flag.
-        let new_type = type_u32 | EWKB_SRID;
         let mut out = Vec::with_capacity(bytes.len() + 4);
         out.push(1u8);
-        out.extend_from_slice(&new_type.to_le_bytes());
+        out.extend_from_slice(&canonical_type_with_srid.to_le_bytes());
         out.extend_from_slice(&srid.to_le_bytes());
         out.extend_from_slice(&bytes[5..]);
         Some(Cow::Owned(out))

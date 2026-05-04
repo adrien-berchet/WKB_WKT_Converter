@@ -61,8 +61,9 @@ pub fn hex_wkb_to_wkt(hex: &str) -> Result<String>
 #### Generic converters
 
 These functions accept **either** a WKT/EWKT string **or** a hex-encoded WKB/EWKB
-string and detect the format automatically (a string composed entirely of hex
-characters is treated as hex WKB; anything else as WKT).
+string and detect the format automatically (a non-empty, even-length string
+composed entirely of hex characters is treated as hex WKB; anything else,
+including odd-length all-hex text, is treated as WKT).
 
 ```rust
 pub fn text_to_wkb(text: &str, srid: SridMode) -> Result<Vec<u8>>
@@ -84,6 +85,8 @@ round-trip through WKB.  When `false`, only the SRID prefix is adjusted —
 **no validation is performed: malformed WKT is returned without error.**
 Leading/trailing whitespace is always trimmed regardless of this flag.  Hex
 WKB input is always decoded to normalised WKT regardless of this flag.
+Odd-length all-hex input is not detected as hex WKB; with `normalize_wkt=false`
+it follows the same unvalidated WKT fast path.
 
 ### Example
 
@@ -182,7 +185,9 @@ All functions above raise `ValueError` on invalid input. (See `text_to_wkt` belo
 #### Generic converters
 
 These three functions accept **either** a WKT/EWKT string **or** a hex-encoded
-WKB/EWKB string and detect the format automatically.
+WKB/EWKB string and detect the format automatically. A non-empty, even-length
+string composed entirely of hex characters is treated as hex WKB; anything else,
+including odd-length all-hex text, is treated as WKT.
 
 | Function | Output |
 |---|---|
@@ -204,7 +209,9 @@ formatting) via a round-trip through WKB.  When `False` (the default), only
 the SRID prefix is adjusted — **no validation is performed: malformed WKT is
 returned without raising an error.**  Leading/trailing whitespace is always
 stripped regardless of this flag.  Hex WKB input is always decoded to
-normalised WKT regardless of this flag.
+normalised WKT regardless of this flag. Odd-length all-hex input is not detected
+as hex WKB; with `normalize_wkt=False` it follows the same unvalidated WKT fast
+path.
 
 ### Example
 

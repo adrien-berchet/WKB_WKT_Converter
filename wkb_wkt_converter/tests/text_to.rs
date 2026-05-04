@@ -13,6 +13,9 @@ const BE_POINT_HEX: &str = "00000000013FF00000000000004000000000000000";
 // malformed-WKB fallback path.
 const LE_SHORT_SRID_HEX: &str = "0103000020";
 
+// Little-endian POINT header with no coordinate body.
+const LE_SHORT_POINT_HEX: &str = "0101000000";
+
 // Uppercase hex-encoded little-endian WKB for POINT (1 2) without SRID.
 // byte-order=0x01, type=0x00000001 (LE), X=1.0 (LE f64), Y=2.0 (LE f64).
 const POINT_HEX: &str = "0101000000000000000000F03F0000000000000040";
@@ -26,6 +29,17 @@ const SRID_POINT_HEX: &str = "0101000020E6100000000000000000F03F0000000000000040
 
 fn hex(wkt: &str) -> String {
     wkt_to_hex_wkb(wkt).unwrap()
+}
+
+fn le_point_hex_with_type(type_u32: u32, srid: Option<u32>) -> String {
+    let mut wkb = vec![0x01u8];
+    wkb.extend_from_slice(&type_u32.to_le_bytes());
+    if let Some(srid) = srid {
+        wkb.extend_from_slice(&srid.to_le_bytes());
+    }
+    wkb.extend_from_slice(&1.0f64.to_le_bytes());
+    wkb.extend_from_slice(&2.0f64.to_le_bytes());
+    hex::encode_upper(wkb)
 }
 
 // ── text_to_wkb: input detection ─────────────────────────────────────────────
@@ -409,6 +423,81 @@ fn wkb_set_malformed_short_srid_errors() {
     assert!(text_to_wkb(LE_SHORT_SRID_HEX, SridMode::Set(4326)).is_err());
 }
 
+#[test]
+fn wkb_strip_short_point_header_errors() {
+    // LE POINT with only the 5-byte header must not pass through the no-SRID fast path.
+    assert!(text_to_wkb(LE_SHORT_POINT_HEX, SridMode::Strip).is_err());
+}
+
+#[test]
+fn wkb_set_short_point_header_errors() {
+    // LE POINT with only the 5-byte header must not become a 9-byte SRID header.
+    assert!(text_to_wkb(LE_SHORT_POINT_HEX, SridMode::Set(4326)).is_err());
+}
+
+#[test]
+fn wkb_strip_plain_point_with_trailing_bytes_normalizes() {
+    let input = format!("{POINT_HEX}DEADBEEF");
+    let wkb = text_to_wkb(&input, SridMode::Strip).unwrap();
+    assert_eq!(wkb, hex::decode(POINT_HEX).unwrap());
+}
+
+#[test]
+fn wkb_set_plain_point_with_trailing_bytes_normalizes() {
+    let input = format!("{POINT_HEX}DEADBEEF");
+    let wkb = text_to_wkb(&input, SridMode::Set(4326)).unwrap();
+    assert_eq!(wkb_to_wkt(&wkb).unwrap(), "SRID=4326;POINT (1 2)");
+    assert_eq!(wkb.len(), hex::decode(SRID_POINT_HEX).unwrap().len());
+}
+
+#[test]
+fn wkb_strip_short_linestring_header_errors() {
+    // LINESTRING needs at least the point-count u32 after its header.
+    assert!(text_to_wkb("0102000000", SridMode::Strip).is_err());
+}
+
+#[test]
+fn wkb_strip_valid_empty_linestring_uses_fast_path() {
+    let wkb = text_to_wkb(&hex("LINESTRING EMPTY"), SridMode::Strip).unwrap();
+    assert_eq!(wkb_to_wkt(&wkb).unwrap(), "LINESTRING EMPTY");
+}
+
+#[test]
+fn wkb_strip_valid_polygon_uses_fast_path() {
+    let wkb = text_to_wkb(&hex("POLYGON ((0 0, 1 0, 1 1, 0 0))"), SridMode::Strip).unwrap();
+    assert_eq!(wkb_to_wkt(&wkb).unwrap(), "POLYGON ((0 0, 1 0, 1 1, 0 0))");
+}
+
+#[test]
+fn wkb_strip_canonicalizes_unknown_high_type_bits() {
+    let h = le_point_hex_with_type(0x1000_0001, None);
+    let wkb = text_to_wkb(&h, SridMode::Strip).unwrap();
+    assert_eq!(u32::from_le_bytes(wkb[1..5].try_into().unwrap()), 1);
+    assert_eq!(wkb_to_wkt(&wkb).unwrap(), "POINT (1 2)");
+}
+
+#[test]
+fn wkb_set_canonicalizes_unknown_high_type_bits_when_srid_matches() {
+    let h = le_point_hex_with_type(0x3000_0001, Some(4326));
+    let wkb = text_to_wkb(&h, SridMode::Set(4326)).unwrap();
+    assert_eq!(
+        u32::from_le_bytes(wkb[1..5].try_into().unwrap()),
+        0x2000_0001
+    );
+    assert_eq!(wkb_to_wkt(&wkb).unwrap(), "SRID=4326;POINT (1 2)");
+}
+
+#[test]
+fn wkb_set_canonicalizes_unknown_high_type_bits_when_adding_srid() {
+    let h = le_point_hex_with_type(0x1000_0001, None);
+    let wkb = text_to_wkb(&h, SridMode::Set(4326)).unwrap();
+    assert_eq!(
+        u32::from_le_bytes(wkb[1..5].try_into().unwrap()),
+        0x2000_0001
+    );
+    assert_eq!(wkb_to_wkt(&wkb).unwrap(), "SRID=4326;POINT (1 2)");
+}
+
 // ── text_to_wkt: normalize_wkt=false with hex-digit-starting non-hex input ───
 
 #[test]
@@ -427,6 +516,21 @@ fn wkt_no_normalize_hex_start_non_hex_body_returned_as_is() {
     assert_eq!(
         text_to_wkt("0XTEST", SridMode::Set(4326), false).unwrap(),
         "SRID=4326;0XTEST"
+    );
+}
+
+#[test]
+fn wkt_no_normalize_hex_start_later_non_hex_body_returned_as_is() {
+    assert_eq!(text_to_wkt("00X0", SridMode::Auto, false).unwrap(), "00X0");
+}
+
+#[test]
+fn wkt_no_normalize_odd_length_all_hex_returned_as_unvalidated_wkt() {
+    assert_eq!(text_to_wkt("ABC", SridMode::Auto, false).unwrap(), "ABC");
+    assert_eq!(text_to_wkt("ABC", SridMode::Strip, false).unwrap(), "ABC");
+    assert_eq!(
+        text_to_wkt("ABC", SridMode::Set(4326), false).unwrap(),
+        "SRID=4326;ABC"
     );
 }
 
