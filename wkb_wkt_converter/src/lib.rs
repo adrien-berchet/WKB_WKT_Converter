@@ -158,7 +158,9 @@ pub fn text_to_wkt(text: &str, srid: SridMode, normalize_wkt: bool) -> Result<St
     // letter that is not an ASCII hex digit, so the first byte is a reliable
     // O(1) discriminator.  (Note: extended keywords like CIRCULARSTRING start
     // with 'C' which IS a hex digit; those fall through to try_decode_hex, which
-    // returns None for non-hex body characters and routes them to WKT parsing.)
+    // returns None for non-hex body characters.  They are then handled as WKT-
+    // like text: returned as-is when normalisation is disabled, or parsed as
+    // WKT when normalisation is enabled.)
     if !normalize_wkt
         && trimmed
             .as_bytes()
