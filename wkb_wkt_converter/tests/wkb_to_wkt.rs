@@ -53,6 +53,11 @@ fn point_empty_z() {
     );
 }
 
+#[test]
+fn point_negative_zero_formats_as_zero() {
+    assert_eq!(wkb_to_wkt(&wkb_of("POINT (-0 -0)")).unwrap(), "POINT (0 0)");
+}
+
 /// Externally-crafted EWKB with SRID=4326 for POINT (1 2).
 /// Byte layout: 01 01000020 E6100000 000000000000F03F 0000000000000040
 #[test]

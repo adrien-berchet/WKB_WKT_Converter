@@ -77,7 +77,8 @@ fn hex_wkb_to_wkt(hex: &str) -> PyResult<String> {
 
 /// Converts a WKT/EWKT string or a hex-encoded WKB/EWKB string to an uppercase
 /// hex-encoded EWKB string.
-/// The input format is detected automatically.
+/// The input format is detected automatically: non-empty, even-length all-hex
+/// text is treated as hex WKB; anything else is treated as WKT.
 ///
 /// *srid* controls SRID handling in the output — see ``text_to_wkb``.
 #[pyfunction]
@@ -87,7 +88,8 @@ fn text_to_hex_wkb(text: &str, srid: Option<Bound<'_, PyAny>>) -> PyResult<Strin
 }
 
 /// Converts a WKT/EWKT string or a hex-encoded WKB/EWKB string to WKB bytes.
-/// The input format is detected automatically.
+/// The input format is detected automatically: non-empty, even-length all-hex
+/// text is treated as hex WKB; anything else is treated as WKT.
 ///
 /// *srid* controls SRID handling in the output:
 /// - ``None`` (default): mirror the input — SRID is kept if present, absent if not.
@@ -100,7 +102,8 @@ fn text_to_wkb(text: &str, srid: Option<Bound<'_, PyAny>>) -> PyResult<Vec<u8>> 
 }
 
 /// Converts a WKT/EWKT string or a hex-encoded WKB/EWKB string to a WKT string.
-/// The input format is detected automatically.
+/// The input format is detected automatically: non-empty, even-length all-hex
+/// text is treated as hex WKB; anything else is treated as WKT.
 ///
 /// *srid* controls SRID handling in the output:
 /// - ``None`` (default): mirror the input — ``SRID=N;`` prefix kept if present, absent if not.
@@ -113,6 +116,8 @@ fn text_to_wkb(text: &str, srid: Option<Bound<'_, PyAny>>) -> PyResult<Vec<u8>> 
 /// performed and malformed WKT is returned without raising an error.**
 /// Leading/trailing whitespace is always stripped regardless of this flag.
 /// Hex WKB input is always decoded to normalised WKT regardless of this flag.
+/// Odd-length all-hex input is not hex WKB; with ``normalize_wkt=False`` it
+/// follows the same unvalidated WKT fast path.
 #[pyfunction]
 #[pyo3(signature = (text, srid=None, normalize_wkt=false))]
 fn text_to_wkt(

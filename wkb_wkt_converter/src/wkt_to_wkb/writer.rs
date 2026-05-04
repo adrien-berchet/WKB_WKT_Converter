@@ -5,8 +5,10 @@ pub(super) struct WkbWriter {
 }
 
 impl WkbWriter {
-    pub fn new() -> Self {
-        Self { buf: Vec::new() }
+    pub fn with_capacity(n: usize) -> Self {
+        Self {
+            buf: Vec::with_capacity(n),
+        }
     }
 
     pub fn into_bytes(self) -> Vec<u8> {

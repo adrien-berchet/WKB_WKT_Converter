@@ -329,7 +329,13 @@ fn empty_string_errors() {
 
 #[test]
 fn unknown_type_errors() {
+    // Starts with an unrecognised letter (T → falls through to catch-all).
     assert!(wkt_to_wkb("TRIANGLE (0 0, 1 0, 0 1)").is_err());
+    // Starts with a recognised letter but is not a valid keyword.
+    assert!(wkt_to_wkb("GEOGRAPHY (0 0)").is_err()); // G → not GEOMETRYCOLLECTION
+    assert!(wkt_to_wkb("MESH (0 0)").is_err()); // M → not MULTI*
+    assert!(wkt_to_wkb("LOCUS (0 0)").is_err()); // L → not LINESTRING
+    assert!(wkt_to_wkb("PLACE (0 0)").is_err()); // P → not POLYGON/POINT
 }
 
 #[test]
