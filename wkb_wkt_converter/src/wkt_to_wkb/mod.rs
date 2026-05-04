@@ -6,11 +6,13 @@ use crate::types::{Dimension, GeomType};
 use tokenizer::Tokenizer;
 use writer::WkbWriter;
 
+const MAX_INITIAL_WKB_CAPACITY: usize = 16 << 20;
+
 /// Converts WKT/EWKT to EWKB, embedding the SRID (if any) in the output.
 pub(crate) fn convert(wkt: &str) -> Result<Vec<u8>> {
     let mut tok = Tokenizer::new(wkt);
     let srid = tok.read_srid_prefix()?;
-    let mut writer = WkbWriter::with_capacity(wkt.len() / 4);
+    let mut writer = WkbWriter::with_capacity(initial_wkb_capacity(wkt.len()));
     parse_geometry(&mut tok, &mut writer, srid)?;
     tok.expect_eof()?;
     Ok(writer.into_bytes())
@@ -20,10 +22,14 @@ pub(crate) fn convert(wkt: &str) -> Result<Vec<u8>> {
 pub(crate) fn convert_split_srid(wkt: &str) -> Result<(Vec<u8>, Option<u32>)> {
     let mut tok = Tokenizer::new(wkt);
     let srid = tok.read_srid_prefix()?;
-    let mut writer = WkbWriter::with_capacity(wkt.len() / 4);
+    let mut writer = WkbWriter::with_capacity(initial_wkb_capacity(wkt.len()));
     parse_geometry(&mut tok, &mut writer, None)?;
     tok.expect_eof()?;
     Ok((writer.into_bytes(), srid))
+}
+
+fn initial_wkb_capacity(wkt_len: usize) -> usize {
+    (wkt_len / 4).min(MAX_INITIAL_WKB_CAPACITY)
 }
 
 fn parse_geometry(
@@ -259,4 +265,19 @@ fn read_rings(tok: &mut Tokenizer<'_>, writer: &mut WkbWriter, dim: Dimension) -
         }
     }
     Ok(rings)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn initial_wkb_capacity_uses_capped_quarter_input_len() {
+        assert_eq!(initial_wkb_capacity(0), 0);
+        assert_eq!(initial_wkb_capacity(40), 10);
+        assert_eq!(
+            initial_wkb_capacity((MAX_INITIAL_WKB_CAPACITY + 1) * 4),
+            MAX_INITIAL_WKB_CAPACITY
+        );
+    }
 }
