@@ -99,8 +99,10 @@ fn text_to_hex_wkb(text: &str, srid: Option<Bound<'_, PyAny>>) -> PyResult<Strin
 /// - ``False``: always strip the SRID from the output.
 /// - integer: always embed this SRID, overriding whatever the input contains.
 ///
-/// For ``False`` and integer SRIDs, hex WKB input is validated; malformed
-/// coordinate values and trailing top-level bytes raise ``ValueError``.
+/// For ``False`` and integer SRIDs, canonical little-endian Point, LineString,
+/// and Polygon EWKB hex input is patched at the top-level header without
+/// scanning the geometry body. Malformed coordinate bodies or trailing bytes in
+/// those simple fast paths can pass through as invalid output bytes.
 #[pyfunction]
 #[pyo3(signature = (text, srid=None))]
 fn text_to_wkb(text: &str, srid: Option<Bound<'_, PyAny>>) -> PyResult<Vec<u8>> {

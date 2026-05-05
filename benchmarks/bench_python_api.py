@@ -166,7 +166,8 @@ def test_shapely_text_to_wkb_from_hex(benchmark, name):
 
 # ---------------------------------------------------------------------------
 # text_to_wkt — WKT input, normalize_wkt=False (fast path: no WKB round-trip)
-# Shapely always normalises so there is no equivalent comparison here.
+# Shapely's nearest functional equivalent is WKT parse+serialize; it is shared
+# with the normalize_wkt=True comparison below.
 # ---------------------------------------------------------------------------
 
 @_WKT_PARAMS

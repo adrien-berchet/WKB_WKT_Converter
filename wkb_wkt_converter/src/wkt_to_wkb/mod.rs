@@ -3,8 +3,8 @@ mod writer;
 
 use crate::error::{Error, Result};
 use crate::types::{Dimension, GeomType};
-use tokenizer::Tokenizer;
-use writer::WkbWriter;
+use tokenizer::{EmptyOrLparen, Tokenizer};
+use writer::{HexWkbWriter, WkbWrite, WkbWriter};
 
 const MAX_INITIAL_WKB_CAPACITY: usize = 16 << 20;
 const MAX_GEOMETRY_DEPTH: usize = 128;
@@ -13,10 +13,53 @@ const MAX_GEOMETRY_DEPTH: usize = 128;
 pub(crate) fn convert(wkt: &str) -> Result<Vec<u8>> {
     let mut tok = Tokenizer::new(wkt);
     let srid = tok.read_srid_prefix()?;
-    let mut writer = WkbWriter::with_capacity(initial_wkb_capacity(wkt.len()));
+    convert_tokenized(tok, wkt.len(), srid)
+}
+
+/// Converts WKT/EWKT to EWKB, embedding `srid` in the top-level output header.
+///
+/// Any input `SRID=` prefix is still parsed and validated, but its value is
+/// ignored in favour of the forced output SRID.
+pub(crate) fn convert_with_forced_srid(wkt: &str, srid: u32) -> Result<Vec<u8>> {
+    let mut tok = Tokenizer::new(wkt);
+    tok.read_srid_prefix()?;
+    convert_tokenized(tok, wkt.len(), Some(srid))
+}
+
+pub(crate) fn convert_to_hex(wkt: &str) -> Result<String> {
+    let mut tok = Tokenizer::new(wkt);
+    let srid = tok.read_srid_prefix()?;
+    convert_tokenized_to_hex(tok, wkt.len(), srid)
+}
+
+pub(crate) fn convert_to_hex_with_forced_srid(wkt: &str, srid: u32) -> Result<String> {
+    let mut tok = Tokenizer::new(wkt);
+    tok.read_srid_prefix()?;
+    convert_tokenized_to_hex(tok, wkt.len(), Some(srid))
+}
+
+pub(crate) fn convert_to_hex_split_srid(wkt: &str) -> Result<String> {
+    let mut tok = Tokenizer::new(wkt);
+    tok.read_srid_prefix()?;
+    convert_tokenized_to_hex(tok, wkt.len(), None)
+}
+
+fn convert_tokenized(mut tok: Tokenizer<'_>, wkt_len: usize, srid: Option<u32>) -> Result<Vec<u8>> {
+    let mut writer = WkbWriter::with_capacity(initial_wkb_capacity(wkt_len));
     parse_geometry_at_depth(&mut tok, &mut writer, srid, 0)?;
     tok.expect_eof()?;
     Ok(writer.into_bytes())
+}
+
+fn convert_tokenized_to_hex(
+    mut tok: Tokenizer<'_>,
+    wkt_len: usize,
+    srid: Option<u32>,
+) -> Result<String> {
+    let mut writer = HexWkbWriter::with_capacity(initial_wkb_capacity(wkt_len));
+    parse_geometry_at_depth(&mut tok, &mut writer, srid, 0)?;
+    tok.expect_eof()?;
+    Ok(writer.into_string())
 }
 
 /// Converts WKT/EWKT to EWKB, returning the SRID separately (not embedded in bytes).
@@ -30,12 +73,12 @@ pub(crate) fn convert_split_srid(wkt: &str) -> Result<(Vec<u8>, Option<u32>)> {
 }
 
 fn initial_wkb_capacity(wkt_len: usize) -> usize {
-    (wkt_len / 4).min(MAX_INITIAL_WKB_CAPACITY)
+    wkt_len.min(MAX_INITIAL_WKB_CAPACITY)
 }
 
 fn parse_geometry_at_depth(
     tok: &mut Tokenizer<'_>,
-    writer: &mut WkbWriter,
+    writer: &mut impl WkbWrite,
     srid: Option<u32>,
     depth: usize,
 ) -> Result<(GeomType, Dimension)> {
@@ -59,18 +102,19 @@ fn parse_geometry_at_depth(
 
 fn parse_point(
     tok: &mut Tokenizer<'_>,
-    writer: &mut WkbWriter,
+    writer: &mut impl WkbWrite,
     dim: Dimension,
     srid: Option<u32>,
 ) -> Result<()> {
     writer.write_header(GeomType::Point, dim, srid);
-    if tok.read_empty_or_lparen()? {
-        // POINT EMPTY: PostGIS convention — NaN for all coordinates
-        write_empty_point_body(writer, dim);
-        return Ok(());
+    match tok.read_empty_or_lparen()? {
+        EmptyOrLparen::Empty => {
+            // POINT EMPTY: PostGIS convention — NaN for all coordinates
+            write_empty_point_body(writer, dim);
+            return Ok(());
+        }
+        EmptyOrLparen::Lparen => {}
     }
-    // read_empty_or_lparen peeked '(' without consuming it; consume it now.
-    tok.expect_lparen()?;
     write_coord_tuple(tok, writer, dim)?;
     tok.expect_rparen()?;
     Ok(())
@@ -78,16 +122,18 @@ fn parse_point(
 
 fn parse_linestring(
     tok: &mut Tokenizer<'_>,
-    writer: &mut WkbWriter,
+    writer: &mut impl WkbWrite,
     dim: Dimension,
     srid: Option<u32>,
 ) -> Result<()> {
     writer.write_header(GeomType::LineString, dim, srid);
-    if tok.read_empty_or_lparen()? {
-        writer.write_u32(0);
-        return Ok(());
+    match tok.read_empty_or_lparen()? {
+        EmptyOrLparen::Empty => {
+            writer.write_u32(0);
+            return Ok(());
+        }
+        EmptyOrLparen::Lparen => {}
     }
-    tok.expect_lparen()?;
     let pts_pos = writer.reserve_u32();
     let pts = read_coord_seq(tok, writer, dim)?;
     writer.patch_u32(pts_pos, pts);
@@ -96,16 +142,18 @@ fn parse_linestring(
 
 fn parse_polygon(
     tok: &mut Tokenizer<'_>,
-    writer: &mut WkbWriter,
+    writer: &mut impl WkbWrite,
     dim: Dimension,
     srid: Option<u32>,
 ) -> Result<()> {
     writer.write_header(GeomType::Polygon, dim, srid);
-    if tok.read_empty_or_lparen()? {
-        writer.write_u32(0);
-        return Ok(());
+    match tok.read_empty_or_lparen()? {
+        EmptyOrLparen::Empty => {
+            writer.write_u32(0);
+            return Ok(());
+        }
+        EmptyOrLparen::Lparen => {}
     }
-    tok.expect_lparen()?;
     let rings_pos = writer.reserve_u32();
     let rings = read_rings(tok, writer, dim)?;
     writer.patch_u32(rings_pos, rings);
@@ -114,28 +162,29 @@ fn parse_polygon(
 
 fn parse_multi_point(
     tok: &mut Tokenizer<'_>,
-    writer: &mut WkbWriter,
+    writer: &mut impl WkbWrite,
     dim: Dimension,
     srid: Option<u32>,
 ) -> Result<()> {
     writer.write_header(GeomType::MultiPoint, dim, srid);
-    if tok.read_empty_or_lparen()? {
-        writer.write_u32(0);
-        return Ok(());
+    match tok.read_empty_or_lparen()? {
+        EmptyOrLparen::Empty => {
+            writer.write_u32(0);
+            return Ok(());
+        }
+        EmptyOrLparen::Lparen => {}
     }
-    tok.expect_lparen()?;
     let count_pos = writer.reserve_u32();
     let mut count = 0u32;
     loop {
         writer.write_header(GeomType::Point, dim, None);
-        if tok.try_read_empty()? {
-            write_empty_point_body(writer, dim);
-        } else if tok.peek_lparen() {
-            tok.expect_lparen()?;
-            write_coord_tuple(tok, writer, dim)?;
-            tok.expect_rparen()?;
-        } else {
-            write_coord_tuple(tok, writer, dim)?;
+        match tok.try_read_empty_or_lparen()? {
+            Some(EmptyOrLparen::Empty) => write_empty_point_body(writer, dim),
+            Some(EmptyOrLparen::Lparen) => {
+                write_coord_tuple(tok, writer, dim)?;
+                tok.expect_rparen()?;
+            }
+            None => write_coord_tuple(tok, writer, dim)?,
         }
         increment_count(&mut count, "MultiPoint members")?;
         if !tok.read_comma_or_rparen()? {
@@ -148,27 +197,29 @@ fn parse_multi_point(
 
 fn parse_multi_linestring(
     tok: &mut Tokenizer<'_>,
-    writer: &mut WkbWriter,
+    writer: &mut impl WkbWrite,
     dim: Dimension,
     srid: Option<u32>,
 ) -> Result<()> {
     writer.write_header(GeomType::MultiLineString, dim, srid);
-    if tok.read_empty_or_lparen()? {
-        writer.write_u32(0);
-        return Ok(());
+    match tok.read_empty_or_lparen()? {
+        EmptyOrLparen::Empty => {
+            writer.write_u32(0);
+            return Ok(());
+        }
+        EmptyOrLparen::Lparen => {}
     }
-    tok.expect_lparen()?;
     let count_pos = writer.reserve_u32();
     let mut count = 0u32;
     loop {
         writer.write_header(GeomType::LineString, dim, None);
-        if tok.try_read_empty()? {
-            writer.write_u32(0);
-        } else {
-            tok.expect_lparen()?;
-            let pts_pos = writer.reserve_u32();
-            let pts = read_coord_seq(tok, writer, dim)?;
-            writer.patch_u32(pts_pos, pts);
+        match tok.read_empty_or_lparen()? {
+            EmptyOrLparen::Empty => writer.write_u32(0),
+            EmptyOrLparen::Lparen => {
+                let pts_pos = writer.reserve_u32();
+                let pts = read_coord_seq(tok, writer, dim)?;
+                writer.patch_u32(pts_pos, pts);
+            }
         }
         increment_count(&mut count, "MultiLineString members")?;
         if !tok.read_comma_or_rparen()? {
@@ -181,27 +232,29 @@ fn parse_multi_linestring(
 
 fn parse_multi_polygon(
     tok: &mut Tokenizer<'_>,
-    writer: &mut WkbWriter,
+    writer: &mut impl WkbWrite,
     dim: Dimension,
     srid: Option<u32>,
 ) -> Result<()> {
     writer.write_header(GeomType::MultiPolygon, dim, srid);
-    if tok.read_empty_or_lparen()? {
-        writer.write_u32(0);
-        return Ok(());
+    match tok.read_empty_or_lparen()? {
+        EmptyOrLparen::Empty => {
+            writer.write_u32(0);
+            return Ok(());
+        }
+        EmptyOrLparen::Lparen => {}
     }
-    tok.expect_lparen()?;
     let count_pos = writer.reserve_u32();
     let mut count = 0u32;
     loop {
         writer.write_header(GeomType::Polygon, dim, None);
-        if tok.try_read_empty()? {
-            writer.write_u32(0);
-        } else {
-            tok.expect_lparen()?;
-            let rings_pos = writer.reserve_u32();
-            let rings = read_rings(tok, writer, dim)?;
-            writer.patch_u32(rings_pos, rings);
+        match tok.read_empty_or_lparen()? {
+            EmptyOrLparen::Empty => writer.write_u32(0),
+            EmptyOrLparen::Lparen => {
+                let rings_pos = writer.reserve_u32();
+                let rings = read_rings(tok, writer, dim)?;
+                writer.patch_u32(rings_pos, rings);
+            }
         }
         increment_count(&mut count, "MultiPolygon members")?;
         if !tok.read_comma_or_rparen()? {
@@ -214,17 +267,19 @@ fn parse_multi_polygon(
 
 fn parse_collection(
     tok: &mut Tokenizer<'_>,
-    writer: &mut WkbWriter,
+    writer: &mut impl WkbWrite,
     dim: Dimension,
     srid: Option<u32>,
     depth: usize,
 ) -> Result<()> {
     writer.write_header(GeomType::GeometryCollection, dim, srid);
-    if tok.read_empty_or_lparen()? {
-        writer.write_u32(0);
-        return Ok(());
+    match tok.read_empty_or_lparen()? {
+        EmptyOrLparen::Empty => {
+            writer.write_u32(0);
+            return Ok(());
+        }
+        EmptyOrLparen::Lparen => {}
     }
-    tok.expect_lparen()?;
     let count_pos = writer.reserve_u32();
     let mut count = 0u32;
     loop {
@@ -249,7 +304,11 @@ fn parse_collection(
 ///
 /// Convention: the opening `(` has already been consumed by the caller.
 /// This function consumes the matching closing `)`.
-fn read_coord_seq(tok: &mut Tokenizer<'_>, writer: &mut WkbWriter, dim: Dimension) -> Result<u32> {
+fn read_coord_seq(
+    tok: &mut Tokenizer<'_>,
+    writer: &mut impl WkbWrite,
+    dim: Dimension,
+) -> Result<u32> {
     let mut count = 0u32;
     loop {
         write_coord_tuple(tok, writer, dim)?;
@@ -266,7 +325,7 @@ fn read_coord_seq(tok: &mut Tokenizer<'_>, writer: &mut WkbWriter, dim: Dimensio
 ///
 /// Convention: the outer polygon `(` has already been consumed by the caller.
 /// This function consumes the matching closing `)`.
-fn read_rings(tok: &mut Tokenizer<'_>, writer: &mut WkbWriter, dim: Dimension) -> Result<u32> {
+fn read_rings(tok: &mut Tokenizer<'_>, writer: &mut impl WkbWrite, dim: Dimension) -> Result<u32> {
     let mut rings = 0u32;
     loop {
         tok.expect_lparen()?;
@@ -283,7 +342,7 @@ fn read_rings(tok: &mut Tokenizer<'_>, writer: &mut WkbWriter, dim: Dimension) -
 
 fn write_coord_tuple(
     tok: &mut Tokenizer<'_>,
-    writer: &mut WkbWriter,
+    writer: &mut impl WkbWrite,
     dim: Dimension,
 ) -> Result<()> {
     for _ in 0..dim.coord_size() {
@@ -292,7 +351,7 @@ fn write_coord_tuple(
     Ok(())
 }
 
-fn write_empty_point_body(writer: &mut WkbWriter, dim: Dimension) {
+fn write_empty_point_body(writer: &mut impl WkbWrite, dim: Dimension) {
     for _ in 0..dim.coord_size() {
         writer.write_f64(f64::NAN);
     }
@@ -310,13 +369,38 @@ mod tests {
     use super::*;
 
     #[test]
-    fn initial_wkb_capacity_uses_capped_quarter_input_len() {
+    fn initial_wkb_capacity_uses_capped_input_len() {
         assert_eq!(initial_wkb_capacity(0), 0);
-        assert_eq!(initial_wkb_capacity(40), 10);
+        assert_eq!(initial_wkb_capacity(40), 40);
         assert_eq!(
-            initial_wkb_capacity((MAX_INITIAL_WKB_CAPACITY + 1) * 4),
+            initial_wkb_capacity(MAX_INITIAL_WKB_CAPACITY + 1),
             MAX_INITIAL_WKB_CAPACITY
         );
+    }
+
+    #[test]
+    fn forced_srid_overrides_validated_input_srid_without_second_copy() {
+        let wkb = convert_with_forced_srid("SRID=4326;POINT (1 2)", 3857).unwrap();
+        assert_eq!(
+            crate::wkb_to_wkt::convert(&wkb).unwrap(),
+            "SRID=3857;POINT (1 2)"
+        );
+    }
+
+    #[test]
+    fn forced_srid_is_only_written_to_top_level_collection_header() {
+        let wkb = convert_with_forced_srid("GEOMETRYCOLLECTION (POINT (1 2))", 3857).unwrap();
+        assert_eq!(
+            u32::from_le_bytes(wkb[1..5].try_into().unwrap()),
+            0x2000_0007
+        );
+        assert_eq!(u32::from_le_bytes(wkb[5..9].try_into().unwrap()), 3857);
+        assert_eq!(u32::from_le_bytes(wkb[14..18].try_into().unwrap()), 1);
+    }
+
+    #[test]
+    fn forced_srid_still_validates_input_srid_prefix() {
+        assert!(convert_with_forced_srid("SRID=abc;POINT (1 2)", 3857).is_err());
     }
 
     #[test]

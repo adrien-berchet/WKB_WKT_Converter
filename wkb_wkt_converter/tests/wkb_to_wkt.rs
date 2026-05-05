@@ -79,15 +79,15 @@ fn point_empty_z() {
 }
 
 #[test]
-fn point_partial_nan_errors() {
+fn point_partial_nan_outputs_invalid_wkt() {
     let wkb = le_point_with_coords(1, &[f64::NAN, 2.0]);
-    assert!(wkb_to_wkt(&wkb).is_err());
+    assert_eq!(wkb_to_wkt(&wkb).unwrap(), "POINT (NaN 2)");
 }
 
 #[test]
-fn point_infinity_errors() {
+fn point_infinity_outputs_invalid_wkt() {
     let wkb = le_point_with_coords(1, &[f64::INFINITY, 2.0]);
-    assert!(wkb_to_wkt(&wkb).is_err());
+    assert_eq!(wkb_to_wkt(&wkb).unwrap(), "POINT (inf 2)");
 }
 
 #[test]
@@ -198,12 +198,12 @@ fn linestring_empty() {
 }
 
 #[test]
-fn linestring_nan_coordinate_errors() {
+fn linestring_nan_coordinate_outputs_invalid_wkt() {
     let mut wkb = le_header(2);
     wkb.extend_from_slice(&1u32.to_le_bytes());
     wkb.extend_from_slice(&1.0f64.to_le_bytes());
     wkb.extend_from_slice(&f64::NAN.to_le_bytes());
-    assert!(wkb_to_wkt(&wkb).is_err());
+    assert_eq!(wkb_to_wkt(&wkb).unwrap(), "LINESTRING (1 NaN)");
 }
 
 // ── Polygon ──────────────────────────────────────────────────────────────────

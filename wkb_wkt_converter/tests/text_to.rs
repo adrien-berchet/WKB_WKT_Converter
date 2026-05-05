@@ -391,10 +391,58 @@ fn hex_wkb_from_hex_wkb_roundtrip() {
 }
 
 #[test]
+fn hex_wkb_strip_from_hex_without_srid_reencodes_same_bytes() {
+    assert_eq!(
+        text_to_hex_wkb(POINT_HEX, SridMode::Strip).unwrap(),
+        POINT_HEX
+    );
+}
+
+#[test]
+fn hex_wkb_strip_from_hex_removes_srid_header() {
+    assert_eq!(
+        text_to_hex_wkb(SRID_POINT_HEX, SridMode::Strip).unwrap(),
+        POINT_HEX
+    );
+}
+
+#[test]
+fn hex_wkb_strip_from_big_endian_hex_falls_back_to_round_trip() {
+    assert_eq!(
+        text_to_hex_wkb(BE_POINT_HEX, SridMode::Strip).unwrap(),
+        POINT_HEX
+    );
+}
+
+#[test]
 fn hex_wkb_set_adds_srid() {
     let h = text_to_hex_wkb("POINT (1 2)", SridMode::Set(4326)).unwrap();
     let wkt = wkb_to_wkt(&hex::decode(&h).unwrap()).unwrap();
     assert_eq!(wkt, "SRID=4326;POINT (1 2)");
+}
+
+#[test]
+fn hex_wkb_set_from_hex_adds_srid_header() {
+    assert_eq!(
+        text_to_hex_wkb(POINT_HEX, SridMode::Set(4326)).unwrap(),
+        SRID_POINT_HEX
+    );
+}
+
+#[test]
+fn hex_wkb_set_from_hex_noops_when_srid_already_matches() {
+    assert_eq!(
+        text_to_hex_wkb(SRID_POINT_HEX, SridMode::Set(4326)).unwrap(),
+        SRID_POINT_HEX
+    );
+}
+
+#[test]
+fn hex_wkb_set_from_big_endian_hex_falls_back_to_round_trip() {
+    assert_eq!(
+        text_to_hex_wkb(BE_POINT_HEX, SridMode::Set(4326)).unwrap(),
+        SRID_POINT_HEX
+    );
 }
 
 #[test]
@@ -444,15 +492,21 @@ fn wkb_set_malformed_short_srid_errors() {
 }
 
 #[test]
-fn wkb_strip_short_point_header_errors() {
-    // LE POINT with only the 5-byte header must not pass through the no-SRID fast path.
-    assert!(text_to_wkb(LE_SHORT_POINT_HEX, SridMode::Strip).is_err());
+fn wkb_strip_short_point_header_passes_through() {
+    let wkb = text_to_wkb(LE_SHORT_POINT_HEX, SridMode::Strip).unwrap();
+    assert_eq!(wkb, hex::decode(LE_SHORT_POINT_HEX).unwrap());
 }
 
 #[test]
-fn wkb_set_short_point_header_errors() {
-    // LE POINT with only the 5-byte header must not become a 9-byte SRID header.
-    assert!(text_to_wkb(LE_SHORT_POINT_HEX, SridMode::Set(4326)).is_err());
+fn wkb_set_short_point_header_patches_header_only() {
+    let wkb = text_to_wkb(LE_SHORT_POINT_HEX, SridMode::Set(4326)).unwrap();
+    assert_eq!(wkb.len(), 9);
+    assert_eq!(wkb[0], 1);
+    assert_eq!(
+        u32::from_le_bytes(wkb[1..5].try_into().unwrap()),
+        0x2000_0001
+    );
+    assert_eq!(u32::from_le_bytes(wkb[5..9].try_into().unwrap()), 4326);
 }
 
 #[test]
@@ -466,18 +520,27 @@ fn wkb_auto_hex_preserves_malformed_bytes_without_validation() {
 }
 
 #[test]
-fn wkb_strip_and_set_reject_non_finite_simple_fast_path_coords() {
+fn wkb_strip_and_set_allow_non_finite_simple_fast_path_coords() {
     let partial_nan = le_point_hex_with_coords(&[f64::NAN, 2.0]);
-    assert!(text_to_wkb(&partial_nan, SridMode::Strip).is_err());
-    assert!(text_to_wkb(&partial_nan, SridMode::Set(4326)).is_err());
+    let stripped = text_to_wkb(&partial_nan, SridMode::Strip).unwrap();
+    assert_eq!(wkb_to_wkt(&stripped).unwrap(), "POINT (NaN 2)");
+    let with_srid = text_to_wkb(&partial_nan, SridMode::Set(4326)).unwrap();
+    assert_eq!(wkb_to_wkt(&with_srid).unwrap(), "SRID=4326;POINT (NaN 2)");
 
     let infinity = le_point_hex_with_coords(&[f64::INFINITY, 2.0]);
-    assert!(text_to_wkb(&infinity, SridMode::Strip).is_err());
-    assert!(text_to_wkb(&infinity, SridMode::Set(4326)).is_err());
+    let stripped = text_to_wkb(&infinity, SridMode::Strip).unwrap();
+    assert_eq!(wkb_to_wkt(&stripped).unwrap(), "POINT (inf 2)");
+    let with_srid = text_to_wkb(&infinity, SridMode::Set(4326)).unwrap();
+    assert_eq!(wkb_to_wkt(&with_srid).unwrap(), "SRID=4326;POINT (inf 2)");
 
     let linestring_nan = le_linestring_hex_with_coords(&[(0.0, 0.0), (1.0, f64::NAN)]);
-    assert!(text_to_wkb(&linestring_nan, SridMode::Strip).is_err());
-    assert!(text_to_wkb(&linestring_nan, SridMode::Set(4326)).is_err());
+    let stripped = text_to_wkb(&linestring_nan, SridMode::Strip).unwrap();
+    assert_eq!(wkb_to_wkt(&stripped).unwrap(), "LINESTRING (0 0, 1 NaN)");
+    let with_srid = text_to_wkb(&linestring_nan, SridMode::Set(4326)).unwrap();
+    assert_eq!(
+        wkb_to_wkt(&with_srid).unwrap(),
+        "SRID=4326;LINESTRING (0 0, 1 NaN)"
+    );
 }
 
 #[test]
@@ -490,15 +553,25 @@ fn wkb_strip_and_set_accept_all_nan_point_empty() {
 }
 
 #[test]
-fn wkb_strip_plain_point_with_trailing_bytes_errors() {
+fn wkb_strip_plain_point_with_trailing_bytes_passes_through() {
     let input = format!("{POINT_HEX}DEADBEEF");
-    assert!(text_to_wkb(&input, SridMode::Strip).is_err());
+    assert_eq!(
+        text_to_wkb(&input, SridMode::Strip).unwrap(),
+        hex::decode(input).unwrap()
+    );
 }
 
 #[test]
-fn wkb_set_plain_point_with_trailing_bytes_errors() {
+fn wkb_set_plain_point_with_trailing_bytes_patches_header_only() {
     let input = format!("{POINT_HEX}DEADBEEF");
-    assert!(text_to_wkb(&input, SridMode::Set(4326)).is_err());
+    let wkb = text_to_wkb(&input, SridMode::Set(4326)).unwrap();
+    assert_eq!(wkb.len(), hex::decode(input).unwrap().len() + 4);
+    assert_eq!(
+        u32::from_le_bytes(wkb[1..5].try_into().unwrap()),
+        0x2000_0001
+    );
+    assert_eq!(u32::from_le_bytes(wkb[5..9].try_into().unwrap()), 4326);
+    assert_eq!(&wkb[wkb.len() - 4..], &[0xDE, 0xAD, 0xBE, 0xEF]);
 }
 
 #[test]
@@ -510,9 +583,9 @@ fn text_to_wkt_hex_with_trailing_bytes_errors() {
 }
 
 #[test]
-fn wkb_strip_short_linestring_header_errors() {
-    // LINESTRING needs at least the point-count u32 after its header.
-    assert!(text_to_wkb("0102000000", SridMode::Strip).is_err());
+fn wkb_strip_short_linestring_header_passes_through() {
+    let wkb = text_to_wkb("0102000000", SridMode::Strip).unwrap();
+    assert_eq!(wkb, hex::decode("0102000000").unwrap());
 }
 
 #[test]
@@ -679,6 +752,8 @@ fn strip_geometry_collection_removes_nested_srids() {
         wkb_to_wkt(&wkb).unwrap(),
         "GEOMETRYCOLLECTION (POINT (1 2))"
     );
+    assert_eq!(u32::from_le_bytes(wkb[1..5].try_into().unwrap()), 7);
+    assert_eq!(u32::from_le_bytes(wkb[10..14].try_into().unwrap()), 1);
 }
 
 // ── Fix 2: Invalid SRID prefix errors under SridMode::Set (WKT path) ──────────

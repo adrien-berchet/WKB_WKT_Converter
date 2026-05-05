@@ -62,7 +62,7 @@ OPERATION_GROUPS = [
     ("  `text_to_wkb(wkt)`",              "text_to_wkb_from_wkt",           "text_to_wkb_from_wkt"),
     ("  `text_to_wkb(hex_wkb)`",          "text_to_wkb_from_hex",           "text_to_wkb_from_hex"),
     ("  `text_to_wkt(wkt)` — `normalize_wkt=False` (fast path, no WKB round-trip)",
-                                          "text_to_wkt_from_wkt_no_normalize", None),
+                                          "text_to_wkt_from_wkt_no_normalize", "text_to_wkt_from_wkt"),
     ("  `text_to_wkt(wkt)` — `normalize_wkt=True` (full WKT→WKB→WKT round-trip)",
                                           "text_to_wkt_from_wkt_normalize", "text_to_wkt_from_wkt"),
     ("  `text_to_wkt(hex_wkb)`",          "text_to_wkt_from_hex",           "text_to_wkt_from_hex"),

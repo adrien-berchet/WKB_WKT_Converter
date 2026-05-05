@@ -37,7 +37,7 @@ pub fn wkt_to_wkb_split_srid(wkt: &str) -> Result<(Vec<u8>, Option<u32>)> {
 
 /// Converts a WKT/EWKT string to an uppercase hex-encoded EWKB string.
 pub fn wkt_to_hex_wkb(wkt: &str) -> Result<String> {
-    wkt_to_wkb(wkt).map(|b| encode_hex(&b))
+    wkt_to_wkb::convert_to_hex(wkt)
 }
 
 /// Converts a hex-encoded WKB/EWKB string to a WKT/EWKT string.
@@ -70,13 +70,11 @@ pub enum SridMode {
 /// - [`SridMode::Strip`]: always strip the SRID from the output.
 /// - [`SridMode::Set(n)`]: always embed SRID `n`, overriding any SRID in the input.
 ///
-/// **Note on validation:** for little-endian Point, LineString, and Polygon hex
-/// WKB input under `Strip` and `Set`, the fast path rewrites only the EWKB header
-/// after checking the byte length implied by the simple geometry body and
-/// validating coordinate finiteness.  Big-endian, collection, ISO-dimensional,
-/// or malformed simple input falls back to a full parse round-trip which
-/// validates and normalises the geometry body.  Validating WKB paths reject
-/// trailing top-level bytes.
+/// **Note on validation:** for canonical little-endian Point, LineString, and
+/// Polygon EWKB hex input under `Strip` and `Set`, the fast path rewrites only
+/// the top-level EWKB header. Big-endian, ISO-dimensional, collection, or
+/// non-canonical type headers fall back to a full parse round-trip which
+/// normalises the geometry body.
 pub fn text_to_wkb(text: &str, srid: SridMode) -> Result<Vec<u8>> {
     let trimmed = text.trim();
     match srid {
@@ -108,21 +106,11 @@ pub fn text_to_wkb(text: &str, srid: SridMode) -> Result<Vec<u8>> {
                     Some(Cow::Owned(out)) => Ok(out),
                     None => {
                         let (wkt, _) = wkb_to_wkt_split_srid(&bytes)?;
-                        wkt_to_wkb(&format!("SRID={srid_val};{wkt}"))
+                        wkt_to_wkb::convert_with_forced_srid(&wkt, srid_val)
                     }
                 }
             } else {
-                // wkt_to_wkb_split_srid validates the full WKT including any SRID= prefix.
-                let (wkb, _) = wkt_to_wkb_split_srid(trimmed)?;
-                // wkb is canonical LE EWKB without embedded SRID; inject srid_val.
-                // wkt_to_wkb_split_srid always returns valid LE WKB with len >= 5 on success.
-                let type_u32 = u32::from_le_bytes(wkb[1..5].try_into().unwrap());
-                let mut out = Vec::with_capacity(wkb.len() + 4);
-                out.push(1u8);
-                out.extend_from_slice(&(type_u32 | EWKB_SRID).to_le_bytes());
-                out.extend_from_slice(&srid_val.to_le_bytes());
-                out.extend_from_slice(&wkb[5..]);
-                Ok(out)
+                wkt_to_wkb::convert_with_forced_srid(trimmed, srid_val)
             }
         }
     }
@@ -214,9 +202,8 @@ pub fn text_to_wkt(text: &str, srid: SridMode, normalize_wkt: bool) -> Result<St
             wkb_to_wkt(&wkb)
         }
         SridMode::Set(srid_val) => {
-            let (wkb, _) = wkt_to_wkb_split_srid(trimmed)?;
-            let plain = wkb_to_wkt(&wkb)?;
-            Ok(format!("SRID={srid_val};{plain}"))
+            let wkb = wkt_to_wkb::convert_with_forced_srid(trimmed, srid_val)?;
+            wkb_to_wkt(&wkb)
         }
     }
 }
@@ -237,7 +224,38 @@ pub fn text_to_hex_wkb(text: &str, srid: SridMode) -> Result<String> {
             return Ok(hex);
         }
     }
-    text_to_wkb(text, srid).map(|b| encode_hex(&b))
+    match srid {
+        SridMode::Auto => {}
+        SridMode::Strip => {
+            if let Some(bytes) = try_decode_hex(trimmed) {
+                return match try_strip_srid_from_le_wkb(&bytes) {
+                    Some(Cow::Borrowed(_)) => Ok(encode_hex(&bytes)),
+                    Some(Cow::Owned(out)) => Ok(encode_hex(&out)),
+                    None => {
+                        let (wkt, _) = wkb_to_wkt_split_srid(&bytes)?;
+                        wkt_to_wkb::convert_to_hex_split_srid(&wkt)
+                    }
+                };
+            }
+        }
+        SridMode::Set(srid_val) => {
+            if let Some(bytes) = try_decode_hex(trimmed) {
+                return match try_set_srid_in_le_wkb(&bytes, srid_val) {
+                    Some(Cow::Borrowed(_)) => Ok(encode_hex(&bytes)),
+                    Some(Cow::Owned(out)) => Ok(encode_hex(&out)),
+                    None => {
+                        let (wkt, _) = wkb_to_wkt_split_srid(&bytes)?;
+                        wkt_to_wkb::convert_to_hex_with_forced_srid(&wkt, srid_val)
+                    }
+                };
+            }
+        }
+    }
+    match srid {
+        SridMode::Auto => wkt_to_wkb::convert_to_hex(trimmed),
+        SridMode::Strip => wkt_to_wkb::convert_to_hex_split_srid(trimmed),
+        SridMode::Set(srid_val) => wkt_to_wkb::convert_to_hex_with_forced_srid(trimmed, srid_val),
+    }
 }
 
 fn strip_ewkt_prefix(wkt: &str) -> &str {
@@ -258,10 +276,10 @@ fn strip_ewkt_prefix(wkt: &str) -> &str {
 /// because it avoids invoking the format machinery for every byte.
 fn encode_hex(bytes: &[u8]) -> String {
     const HEX: &[u8; 16] = b"0123456789ABCDEF";
-    let mut out = Vec::with_capacity(bytes.len().saturating_mul(2));
-    for &b in bytes {
-        out.push(HEX[(b >> 4) as usize]);
-        out.push(HEX[(b & 0xF) as usize]);
+    let mut out = vec![0u8; bytes.len().saturating_mul(2)];
+    for (chunk, &b) in out.chunks_exact_mut(2).zip(bytes) {
+        chunk[0] = HEX[(b >> 4) as usize];
+        chunk[1] = HEX[(b & 0xF) as usize];
     }
     // SAFETY: every byte written is an ASCII hex digit (0–9, A–F).
     unsafe { String::from_utf8_unchecked(out) }
@@ -308,15 +326,15 @@ fn try_decode_hex(s: &str) -> Option<Vec<u8>> {
         return None;
     }
 
-    let mut out = Vec::with_capacity(bytes.len() / 2);
-    out.push((hi << 4) | lo);
-    for chunk in bytes[2..].chunks_exact(2) {
+    let mut out = vec![0u8; bytes.len() / 2];
+    out[0] = (hi << 4) | lo;
+    for (dst, chunk) in out[1..].iter_mut().zip(bytes[2..].chunks_exact(2)) {
         let hi = HEX_NIBBLE_LUT[chunk[0] as usize];
         let lo = HEX_NIBBLE_LUT[chunk[1] as usize];
         if (hi | lo) > 0x0F {
             return None;
         }
-        out.push((hi << 4) | lo);
+        *dst = (hi << 4) | lo;
     }
     Some(out)
 }
@@ -332,13 +350,13 @@ fn try_normalize_hex_uppercase(s: &str) -> Option<String> {
         return None;
     }
 
-    let mut out = Vec::with_capacity(bytes.len());
-    out.push(bytes[0].to_ascii_uppercase());
-    for &byte in &bytes[1..] {
+    let mut out = vec![0u8; bytes.len()];
+    out[0] = bytes[0].to_ascii_uppercase();
+    for (dst, &byte) in out[1..].iter_mut().zip(&bytes[1..]) {
         if HEX_NIBBLE_LUT[byte as usize] > 0x0F {
             return None;
         }
-        out.push(byte.to_ascii_uppercase());
+        *dst = byte.to_ascii_uppercase();
     }
     // SAFETY: every byte is an ASCII hex digit, uppercased in place.
     Some(unsafe { String::from_utf8_unchecked(out) })
@@ -354,8 +372,8 @@ fn decode_hex(hex: &str) -> Result<Vec<u8>> {
     if !bytes.len().is_multiple_of(2) {
         return Err(Error::InvalidWkb("hex string has odd length".into()));
     }
-    let mut out = Vec::with_capacity(bytes.len() / 2);
-    for (i, chunk) in bytes.chunks_exact(2).enumerate() {
+    let mut out = vec![0u8; bytes.len() / 2];
+    for (i, (dst, chunk)) in out.iter_mut().zip(bytes.chunks_exact(2)).enumerate() {
         let hi = HEX_NIBBLE_LUT[chunk[0] as usize];
         if hi > 0x0F {
             return Err(Error::InvalidWkb(format!(
@@ -370,7 +388,7 @@ fn decode_hex(hex: &str) -> Result<Vec<u8>> {
                 i * 2 + 1
             )));
         }
-        out.push((hi << 4) | lo);
+        *dst = (hi << 4) | lo;
     }
     Ok(out)
 }
@@ -380,135 +398,41 @@ struct LeFastPathHeader {
     canonical_type_without_srid: u32,
 }
 
-fn read_le_u32_at(bytes: &[u8], offset: usize) -> Option<u32> {
-    let end = offset.checked_add(4)?;
-    Some(u32::from_le_bytes(
-        bytes.get(offset..end)?.try_into().unwrap(),
-    ))
-}
-
-fn read_le_f64_at(bytes: &[u8], offset: usize) -> Option<f64> {
-    let end = offset.checked_add(8)?;
-    Some(f64::from_le_bytes(
-        bytes.get(offset..end)?.try_into().unwrap(),
-    ))
-}
-
-fn validate_le_point_coords(bytes: &[u8], pos: usize, coord_count: usize) -> Option<()> {
-    let mut all_nan = true;
-    let mut all_finite = true;
-    for i in 0..coord_count {
-        let offset = pos.checked_add(i.checked_mul(8)?)?;
-        let value = read_le_f64_at(bytes, offset)?;
-        all_nan &= value.is_nan();
-        all_finite &= value.is_finite();
-    }
-    if all_nan || all_finite {
-        Some(())
-    } else {
-        None
-    }
-}
-
-fn validate_le_coord_seq(
-    bytes: &[u8],
-    mut pos: usize,
-    point_count: usize,
-    coord_count: usize,
-) -> Option<usize> {
-    for _ in 0..point_count {
-        for i in 0..coord_count {
-            let offset = pos.checked_add(i.checked_mul(8)?)?;
-            if !read_le_f64_at(bytes, offset)?.is_finite() {
-                return None;
-            }
-        }
-        pos = pos.checked_add(coord_count.checked_mul(8)?)?;
-    }
-    Some(pos)
-}
-
-fn exact_valid_simple_le_wkb_len(
-    bytes: &[u8],
-    body_start: usize,
-    base_geom_type: u32,
-    known_dim_flags: u32,
-) -> Option<usize> {
-    debug_assert!((1..=3).contains(&base_geom_type));
-    let coord_count =
-        2 + usize::from(known_dim_flags & EWKB_Z != 0) + usize::from(known_dim_flags & EWKB_M != 0);
-    let coord_bytes = coord_count.checked_mul(8)?;
-
-    if base_geom_type == 1 {
-        validate_le_point_coords(bytes, body_start, coord_count)?;
-        return body_start.checked_add(coord_bytes);
-    }
-
-    let mut pos = body_start.checked_add(4)?;
-    let count = usize::try_from(read_le_u32_at(bytes, body_start)?).ok()?;
-    if base_geom_type == 2 {
-        return validate_le_coord_seq(bytes, pos, count, coord_count);
-    }
-
-    for _ in 0..count {
-        let point_count = usize::try_from(read_le_u32_at(bytes, pos)?).ok()?;
-        pos = pos.checked_add(4)?;
-        pos = validate_le_coord_seq(bytes, pos, point_count, coord_count)?;
-    }
-    Some(pos)
-}
-
 fn try_read_le_fast_path_header(bytes: &[u8]) -> Option<LeFastPathHeader> {
     if bytes.len() < 5 || bytes[0] != 1 {
         return None;
     }
     let type_u32 = u32::from_le_bytes(bytes[1..5].try_into().unwrap());
-    let known_dim_flags = type_u32 & (EWKB_Z | EWKB_M);
-    // Strip all EWKB flag bits and unknown high bits to get the bare OGC type.
-    let base_geom_type = type_u32 & !(EWKB_Z | EWKB_M | EWKB_SRID) & 0x0000_FFFF;
+    let high_bits = type_u32 & !0x0000_FFFF;
+    if high_bits & !(EWKB_Z | EWKB_M | EWKB_SRID) != 0 {
+        return None;
+    }
+    let base_geom_type = type_u32 & 0x0000_FFFF;
     if !(1..=3).contains(&base_geom_type) {
         return None;
     }
 
-    let body_start = if type_u32 & EWKB_SRID != 0 {
-        if bytes.len() < 9 {
-            return None;
-        }
-        9
-    } else {
-        5
-    };
-    if exact_valid_simple_le_wkb_len(bytes, body_start, base_geom_type, known_dim_flags)?
-        != bytes.len()
-    {
+    if type_u32 & EWKB_SRID != 0 && bytes.len() < 9 {
         return None;
     }
 
     Some(LeFastPathHeader {
         type_u32,
-        canonical_type_without_srid: base_geom_type | known_dim_flags,
+        canonical_type_without_srid: type_u32 & !EWKB_SRID,
     })
 }
 
-/// Strip the SRID from a little-endian EWKB byte slice without parsing
-/// coordinates.
+/// Strip the SRID from a canonical little-endian simple EWKB byte slice without
+/// parsing the geometry body.
 ///
 /// Returns `None` when the bytes are not recognisable as little-endian EWKB
-/// (too short, big-endian marker, or mismatched simple body length), or when the
-/// base geometry type is > 3 (collection types 4–7 or ISO-dimensional codes >
-/// 7).  In those cases the caller should fall back to a full WKB→WKT→WKB
-/// round-trip, which normalises type codes, handles big-endian input, and strips
-/// nested SRID headers in sub-geometries.
+/// with canonical EWKB type flags. In those cases the caller should fall back
+/// to a full WKB→WKT→WKB round-trip, which normalises type codes and handles
+/// big-endian, collection, or ISO-dimensional input.
 fn try_strip_srid_from_le_wkb(bytes: &[u8]) -> Option<Cow<'_, [u8]>> {
     let header = try_read_le_fast_path_header(bytes)?;
     if header.type_u32 & EWKB_SRID == 0 {
-        // No SRID present. Return a borrow only if the type word is already canonical.
-        if header.type_u32 == header.canonical_type_without_srid {
-            return Some(Cow::Borrowed(bytes));
-        }
-        let mut out = bytes.to_vec();
-        out[1..5].copy_from_slice(&header.canonical_type_without_srid.to_le_bytes());
-        return Some(Cow::Owned(out));
+        return Some(Cow::Borrowed(bytes));
     }
     let mut out = Vec::with_capacity(bytes.len() - 4);
     out.push(1u8); // little-endian marker
@@ -517,15 +441,13 @@ fn try_strip_srid_from_le_wkb(bytes: &[u8]) -> Option<Cow<'_, [u8]>> {
     Some(Cow::Owned(out))
 }
 
-/// Inject or replace the SRID in a little-endian EWKB byte slice without
-/// parsing coordinates.
+/// Inject or replace the SRID in a canonical little-endian simple EWKB byte slice
+/// without parsing the geometry body.
 ///
 /// Returns `None` when the bytes are not recognisable as little-endian EWKB
-/// (too short, big-endian marker, or mismatched simple body length), or when the
-/// base geometry type is > 3 (collection types 4–7 or ISO-dimensional codes >
-/// 7).  In those cases the caller should fall back to a full WKB→WKT→WKB
-/// round-trip, which normalises type codes, handles big-endian input, and strips
-/// nested SRID headers in sub-geometries.
+/// with canonical EWKB type flags. In those cases the caller should fall back
+/// to a full WKB→WKT→WKB round-trip, which normalises type codes and handles
+/// big-endian, collection, or ISO-dimensional input.
 fn try_set_srid_in_le_wkb(bytes: &[u8], srid: u32) -> Option<Cow<'_, [u8]>> {
     let header = try_read_le_fast_path_header(bytes)?;
     let canonical_type_with_srid = header.canonical_type_without_srid | EWKB_SRID;

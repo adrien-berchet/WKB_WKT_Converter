@@ -193,7 +193,6 @@ impl<'a> WkbReader<'a> {
         if coords.iter().all(|v| v.is_nan()) {
             out.push_str(" EMPTY");
         } else {
-            validate_finite_coords(coords)?;
             out.push_str(" (");
             out.push_coord(coords);
             out.push_char(')');
@@ -263,7 +262,6 @@ impl<'a> WkbReader<'a> {
             if coords.iter().all(|v| v.is_nan()) {
                 out.push_str("EMPTY");
             } else {
-                validate_finite_coords(coords)?;
                 out.push_char('(');
                 out.push_coord(coords);
                 out.push_char(')');
@@ -397,18 +395,9 @@ impl<'a> WkbReader<'a> {
             for item in coords.iter_mut().take(n) {
                 *item = self.read_f64()?;
             }
-            validate_finite_coords(&coords[..n])?;
             out.push_coord(&coords[..n]);
         }
         Ok(())
-    }
-}
-
-fn validate_finite_coords(coords: &[f64]) -> Result<()> {
-    if coords.iter().all(|v| v.is_finite()) {
-        Ok(())
-    } else {
-        Err(Error::InvalidWkb("non-finite coordinate value".into()))
     }
 }
 
