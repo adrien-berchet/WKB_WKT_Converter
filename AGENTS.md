@@ -19,6 +19,12 @@ cargo llvm-cov --package wkb_wkt_converter --fail-under-lines 100
 maturin develop                  # build and install into the active virtualenv
 pytest                           # run Python binding tests
 
+# ASV local benchmark history
+pip install ".[asv]"
+asv check --python=same
+asv run --python=same --quick --show-stderr --dry-run
+asv run HEAD^! --quick --show-stderr --dry-run
+
 # Python binding coverage (instruments Rust code via LLVM when called from Python)
 source <(cargo llvm-cov show-env --export-prefix)
 maturin build
@@ -42,6 +48,24 @@ cargo llvm-cov report --package wkb_wkt_converter_py --fail-under-lines 100
 - If a line is genuinely unreachable (e.g. a defensive branch that cannot be
   triggered through the public API), prefer removing it over marking it as
   excluded — dead code should not exist in this codebase.
+
+## Performance benchmarks
+
+When adding a new public function exported by the `wkb_wkt_converter` Python
+module, update the ASV benchmark suite in `asv_benchmarks/python_api.py` in the
+same change. Add a converter-only `time_*` benchmark for at least one
+representative successful call path, using the existing representative geometry
+set when applicable.
+
+This applies to new public Python API functions, not internal helpers,
+Rust-only APIs, or behavior-only changes to existing functions unless they
+introduce a materially different performance path.
+
+For WKB/hex inputs, prefer fixed or independently generated fixtures rather than
+calling the converter under test during benchmark setup. Keep importing
+`wkb_wkt_converter` inside benchmark `setup` methods so ASV discovery does not
+require the extension module to be installed yet. Use `asv check --python=same`
+as the quick ASV sanity check when the ASV extra is installed.
 
 ## Architecture
 

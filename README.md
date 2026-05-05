@@ -282,6 +282,21 @@ python scripts/update_readme_benchmarks.py
 python scripts/update_readme_benchmarks.py --json benchmark_results.json
 ```
 
+For local performance history across commits, use
+[airspeed velocity](https://asv.readthedocs.io/):
+
+```sh
+pip install ".[asv]"
+asv check --python=same
+asv run --python=same --quick --show-stderr --dry-run
+asv run HEAD^! --quick --show-stderr --dry-run
+asv run main..HEAD --skip-existing-commits --show-stderr
+asv run ALL --skip-existing-commits --show-stderr
+asv publish
+asv preview
+asv compare main HEAD --split
+```
+
 <!-- BENCHMARK_RESULTS_START -->
 
 *2026-05-02 — Python 3.11.15 — Intel(R) Xeon(R) Processor @ 2.10GHz*
