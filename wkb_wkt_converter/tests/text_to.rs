@@ -42,6 +42,26 @@ fn le_point_hex_with_type(type_u32: u32, srid: Option<u32>) -> String {
     hex::encode_upper(wkb)
 }
 
+fn le_point_hex_with_coords(coords: &[f64]) -> String {
+    let mut wkb = vec![0x01u8];
+    wkb.extend_from_slice(&1u32.to_le_bytes());
+    for coord in coords {
+        wkb.extend_from_slice(&coord.to_le_bytes());
+    }
+    hex::encode_upper(wkb)
+}
+
+fn le_linestring_hex_with_coords(coords: &[(f64, f64)]) -> String {
+    let mut wkb = vec![0x01u8];
+    wkb.extend_from_slice(&2u32.to_le_bytes());
+    wkb.extend_from_slice(&(coords.len() as u32).to_le_bytes());
+    for (x, y) in coords {
+        wkb.extend_from_slice(&x.to_le_bytes());
+        wkb.extend_from_slice(&y.to_le_bytes());
+    }
+    hex::encode_upper(wkb)
+}
+
 // ── text_to_wkb: input detection ─────────────────────────────────────────────
 
 #[test]
@@ -436,18 +456,57 @@ fn wkb_set_short_point_header_errors() {
 }
 
 #[test]
-fn wkb_strip_plain_point_with_trailing_bytes_normalizes() {
-    let input = format!("{POINT_HEX}DEADBEEF");
-    let wkb = text_to_wkb(&input, SridMode::Strip).unwrap();
-    assert_eq!(wkb, hex::decode(POINT_HEX).unwrap());
+fn wkb_auto_hex_preserves_malformed_bytes_without_validation() {
+    let wkb = text_to_wkb(LE_SHORT_POINT_HEX, SridMode::Auto).unwrap();
+    assert_eq!(wkb, hex::decode(LE_SHORT_POINT_HEX).unwrap());
+    assert_eq!(
+        text_to_hex_wkb(&LE_SHORT_POINT_HEX.to_lowercase(), SridMode::Auto).unwrap(),
+        LE_SHORT_POINT_HEX
+    );
 }
 
 #[test]
-fn wkb_set_plain_point_with_trailing_bytes_normalizes() {
+fn wkb_strip_and_set_reject_non_finite_simple_fast_path_coords() {
+    let partial_nan = le_point_hex_with_coords(&[f64::NAN, 2.0]);
+    assert!(text_to_wkb(&partial_nan, SridMode::Strip).is_err());
+    assert!(text_to_wkb(&partial_nan, SridMode::Set(4326)).is_err());
+
+    let infinity = le_point_hex_with_coords(&[f64::INFINITY, 2.0]);
+    assert!(text_to_wkb(&infinity, SridMode::Strip).is_err());
+    assert!(text_to_wkb(&infinity, SridMode::Set(4326)).is_err());
+
+    let linestring_nan = le_linestring_hex_with_coords(&[(0.0, 0.0), (1.0, f64::NAN)]);
+    assert!(text_to_wkb(&linestring_nan, SridMode::Strip).is_err());
+    assert!(text_to_wkb(&linestring_nan, SridMode::Set(4326)).is_err());
+}
+
+#[test]
+fn wkb_strip_and_set_accept_all_nan_point_empty() {
+    let empty_point = le_point_hex_with_coords(&[f64::NAN, f64::NAN]);
+    let stripped = text_to_wkb(&empty_point, SridMode::Strip).unwrap();
+    assert_eq!(wkb_to_wkt(&stripped).unwrap(), "POINT EMPTY");
+    let with_srid = text_to_wkb(&empty_point, SridMode::Set(4326)).unwrap();
+    assert_eq!(wkb_to_wkt(&with_srid).unwrap(), "SRID=4326;POINT EMPTY");
+}
+
+#[test]
+fn wkb_strip_plain_point_with_trailing_bytes_errors() {
     let input = format!("{POINT_HEX}DEADBEEF");
-    let wkb = text_to_wkb(&input, SridMode::Set(4326)).unwrap();
-    assert_eq!(wkb_to_wkt(&wkb).unwrap(), "SRID=4326;POINT (1 2)");
-    assert_eq!(wkb.len(), hex::decode(SRID_POINT_HEX).unwrap().len());
+    assert!(text_to_wkb(&input, SridMode::Strip).is_err());
+}
+
+#[test]
+fn wkb_set_plain_point_with_trailing_bytes_errors() {
+    let input = format!("{POINT_HEX}DEADBEEF");
+    assert!(text_to_wkb(&input, SridMode::Set(4326)).is_err());
+}
+
+#[test]
+fn text_to_wkt_hex_with_trailing_bytes_errors() {
+    let input = format!("{POINT_HEX}DEADBEEF");
+    assert!(text_to_wkt(&input, SridMode::Auto, true).is_err());
+    assert!(text_to_wkt(&input, SridMode::Strip, true).is_err());
+    assert!(text_to_wkt(&input, SridMode::Set(4326), true).is_err());
 }
 
 #[test]
@@ -551,11 +610,25 @@ fn auto_be_hex_input_returned_as_be_bytes() {
 
 #[test]
 fn text_to_hex_wkb_lowercase_hex_normalised_to_uppercase() {
-    // Lowercase hex input under SridMode::Auto is decoded and re-encoded as
-    // uppercase — the output must equal the known uppercase constant.
+    // Lowercase hex input under SridMode::Auto is validated as hex text and
+    // uppercased without WKB structure validation.
     let lowercase = POINT_HEX.to_lowercase();
     let result = text_to_hex_wkb(&lowercase, SridMode::Auto).unwrap();
     assert_eq!(result, POINT_HEX);
+}
+
+#[test]
+fn text_to_hex_wkb_auto_uppercases_without_wkb_validation() {
+    assert_eq!(
+        text_to_hex_wkb("0101000000deadbeef", SridMode::Auto).unwrap(),
+        "0101000000DEADBEEF"
+    );
+}
+
+#[test]
+fn text_to_hex_wkb_auto_invalid_hex_falls_back_to_wkt_errors() {
+    assert!(text_to_hex_wkb("ZZ", SridMode::Auto).is_err());
+    assert!(text_to_hex_wkb("0Z", SridMode::Auto).is_err());
 }
 
 #[test]

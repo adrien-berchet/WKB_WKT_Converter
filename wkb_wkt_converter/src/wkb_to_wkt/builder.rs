@@ -23,6 +23,10 @@ impl WktBuilder {
         self.buf.push(c);
     }
 
+    pub fn push_srid_prefix(&mut self, srid: u32) {
+        write!(self.buf, "SRID={srid};").unwrap();
+    }
+
     /// Writes space-separated coordinate values.
     pub fn push_coord(&mut self, coords: &[f64]) {
         for (i, &v) in coords.iter().enumerate() {

@@ -167,6 +167,19 @@ fn multipoint_empty_roundtrip() {
     assert_eq!(roundtrip("MULTIPOINT EMPTY"), "MULTIPOINT EMPTY");
 }
 
+#[test]
+fn multipoint_empty_members_roundtrip() {
+    assert_eq!(roundtrip("MULTIPOINT (EMPTY)"), "MULTIPOINT (EMPTY)");
+    assert_eq!(
+        roundtrip("MULTIPOINT (EMPTY, (1 2), EMPTY)"),
+        "MULTIPOINT (EMPTY, (1 2), EMPTY)"
+    );
+    assert_eq!(
+        roundtrip("MULTIPOINT Z (EMPTY, (1 2 3), EMPTY)"),
+        "MULTIPOINT Z (EMPTY, (1 2 3), EMPTY)"
+    );
+}
+
 // ── MultiLineString ───────────────────────────────────────────────────────────
 
 #[test]
@@ -190,6 +203,18 @@ fn multilinestring_empty_roundtrip() {
     assert_eq!(roundtrip("MULTILINESTRING EMPTY"), "MULTILINESTRING EMPTY");
 }
 
+#[test]
+fn multilinestring_empty_members_roundtrip() {
+    assert_eq!(
+        roundtrip("MULTILINESTRING (EMPTY, (0 0, 1 1), EMPTY)"),
+        "MULTILINESTRING (EMPTY, (0 0, 1 1), EMPTY)"
+    );
+    assert_eq!(
+        roundtrip("MULTILINESTRING Z (EMPTY, (0 0 0, 1 1 1))"),
+        "MULTILINESTRING Z (EMPTY, (0 0 0, 1 1 1))"
+    );
+}
+
 // ── MultiPolygon ─────────────────────────────────────────────────────────────
 
 #[test]
@@ -207,6 +232,18 @@ fn multipolygon_with_hole_roundtrip() {
 #[test]
 fn multipolygon_empty_roundtrip() {
     assert_eq!(roundtrip("MULTIPOLYGON EMPTY"), "MULTIPOLYGON EMPTY");
+}
+
+#[test]
+fn multipolygon_empty_members_roundtrip() {
+    assert_eq!(
+        roundtrip("MULTIPOLYGON (EMPTY, ((0 0, 1 0, 1 1, 0 0)), EMPTY)"),
+        "MULTIPOLYGON (EMPTY, ((0 0, 1 0, 1 1, 0 0)), EMPTY)"
+    );
+    assert_eq!(
+        roundtrip("MULTIPOLYGON Z (EMPTY, ((0 0 0, 1 0 0, 1 1 0, 0 0 0)))"),
+        "MULTIPOLYGON Z (EMPTY, ((0 0 0, 1 0 0, 1 1 0, 0 0 0)))"
+    );
 }
 
 // ── GeometryCollection ───────────────────────────────────────────────────────
@@ -229,6 +266,21 @@ fn geometrycollection_empty_roundtrip() {
         roundtrip("GEOMETRYCOLLECTION EMPTY"),
         "GEOMETRYCOLLECTION EMPTY"
     );
+}
+
+#[test]
+fn geometrycollection_xy_parent_allows_heterogeneous_children() {
+    let wkt = "GEOMETRYCOLLECTION (POINT Z (1 2 3), POINT M (4 5 6))";
+    assert_eq!(roundtrip(wkt), wkt);
+}
+
+#[test]
+fn geometrycollection_non_xy_parent_requires_matching_child_dimensions() {
+    let wkt = "GEOMETRYCOLLECTION Z (POINT Z (1 2 3), LINESTRING Z (0 0 0, 1 1 1))";
+    assert_eq!(roundtrip(wkt), wkt);
+
+    assert!(wkt_to_wkb("GEOMETRYCOLLECTION Z (POINT (1 2))").is_err());
+    assert!(wkt_to_wkb("GEOMETRYCOLLECTION Z (POINT M (1 2 3))").is_err());
 }
 
 // ── Hex convenience ──────────────────────────────────────────────────────────
@@ -349,6 +401,13 @@ fn trailing_content_errors() {
 }
 
 #[test]
+fn non_ascii_malformed_input_errors_without_panic() {
+    assert!(wkt_to_wkb("☃").is_err());
+    assert!(wkt_to_wkb("POINT (1 2) ☃").is_err());
+    assert!(wkt_to_wkb("POINT ☃").is_err());
+}
+
+#[test]
 fn srid_without_semicolon_errors() {
     assert!(wkt_to_wkb("SRID=4326 POINT (1 2)").is_err());
 }
@@ -400,4 +459,53 @@ fn linestring_invalid_separator_errors() {
 fn geometry_invalid_body_errors() {
     // Neither EMPTY nor '(' after the type keyword — read_empty_or_lparen fails
     assert!(wkt_to_wkb("POINT INVALID").is_err());
+}
+
+#[test]
+fn concatenated_keywords_and_empty_are_rejected() {
+    for wkt in [
+        "POINTEMPTY",
+        "LINESTRINGEMPTY",
+        "POLYGONEMPTY",
+        "MULTIPOINTEMPTY",
+        "MULTILINESTRINGEMPTY",
+        "MULTIPOLYGONEMPTY",
+        "GEOMETRYCOLLECTIONEMPTY",
+        "POINT EMPTYX",
+        "LINESTRING EMPTYX",
+        "POLYGON EMPTYX",
+        "MULTIPOINT (EMPTYX)",
+        "MULTILINESTRING (EMPTYX)",
+        "MULTIPOLYGON (EMPTYX)",
+        "POINTZ",
+        "POINT ZEMPTY",
+        "POINT MEMPTY",
+        "POINT ZMEMPTY",
+    ] {
+        assert!(wkt_to_wkb(wkt).is_err(), "{wkt} should be rejected");
+    }
+}
+
+#[test]
+fn non_finite_wkt_coordinates_are_rejected() {
+    assert!(wkt_to_wkb("POINT (1e9999 2)").is_err());
+    assert!(wkt_to_wkb("LINESTRING (0 0, 1 1e9999)").is_err());
+}
+
+fn nested_geometrycollection_wkt(collection_depth: usize) -> String {
+    let mut wkt = String::new();
+    for _ in 0..collection_depth {
+        wkt.push_str("GEOMETRYCOLLECTION (");
+    }
+    wkt.push_str("POINT (1 2)");
+    for _ in 0..collection_depth {
+        wkt.push(')');
+    }
+    wkt
+}
+
+#[test]
+fn geometry_depth_limit_is_enforced_for_wkt() {
+    assert!(wkt_to_wkb(&nested_geometrycollection_wkt(127)).is_ok());
+    assert!(wkt_to_wkb(&nested_geometrycollection_wkt(128)).is_err());
 }

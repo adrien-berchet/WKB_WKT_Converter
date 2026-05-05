@@ -9,6 +9,31 @@ fn wkb_of(wkt: &str) -> Vec<u8> {
     wkt_to_wkb(wkt).unwrap()
 }
 
+fn le_header(geom_type: u32) -> Vec<u8> {
+    let mut wkb = vec![0x01u8];
+    wkb.extend_from_slice(&geom_type.to_le_bytes());
+    wkb
+}
+
+fn le_point_with_coords(geom_type: u32, coords: &[f64]) -> Vec<u8> {
+    let mut wkb = le_header(geom_type);
+    for coord in coords {
+        wkb.extend_from_slice(&coord.to_le_bytes());
+    }
+    wkb
+}
+
+fn nested_geometrycollection_wkb(collection_depth: usize) -> Vec<u8> {
+    let mut wkb = Vec::new();
+    for _ in 0..collection_depth {
+        wkb.push(0x01);
+        wkb.extend_from_slice(&7u32.to_le_bytes());
+        wkb.extend_from_slice(&1u32.to_le_bytes());
+    }
+    wkb.extend_from_slice(&wkb_of("POINT (1 2)"));
+    wkb
+}
+
 // ── Point ────────────────────────────────────────────────────────────────────
 
 #[test]
@@ -51,6 +76,18 @@ fn point_empty_z() {
         wkb_to_wkt(&wkb_of("POINT Z EMPTY")).unwrap(),
         "POINT Z EMPTY"
     );
+}
+
+#[test]
+fn point_partial_nan_errors() {
+    let wkb = le_point_with_coords(1, &[f64::NAN, 2.0]);
+    assert!(wkb_to_wkt(&wkb).is_err());
+}
+
+#[test]
+fn point_infinity_errors() {
+    let wkb = le_point_with_coords(1, &[f64::INFINITY, 2.0]);
+    assert!(wkb_to_wkt(&wkb).is_err());
 }
 
 #[test]
@@ -160,6 +197,15 @@ fn linestring_empty() {
     );
 }
 
+#[test]
+fn linestring_nan_coordinate_errors() {
+    let mut wkb = le_header(2);
+    wkb.extend_from_slice(&1u32.to_le_bytes());
+    wkb.extend_from_slice(&1.0f64.to_le_bytes());
+    wkb.extend_from_slice(&f64::NAN.to_le_bytes());
+    assert!(wkb_to_wkt(&wkb).is_err());
+}
+
 // ── Polygon ──────────────────────────────────────────────────────────────────
 
 #[test]
@@ -212,6 +258,23 @@ fn multipolygon_xy() {
 fn geometrycollection_xy() {
     let wkt = "GEOMETRYCOLLECTION (POINT (1 2), LINESTRING (0 0, 1 1))";
     assert_eq!(wkb_to_wkt(&wkb_of(wkt)).unwrap(), wkt);
+}
+
+#[test]
+fn geometrycollection_xy_parent_allows_heterogeneous_children() {
+    let wkt = "GEOMETRYCOLLECTION (POINT Z (1 2 3), POINT M (4 5 6))";
+    assert_eq!(wkb_to_wkt(&wkb_of(wkt)).unwrap(), wkt);
+}
+
+#[test]
+fn geometrycollection_non_xy_parent_requires_matching_child_dimensions() {
+    let wkt = "GEOMETRYCOLLECTION Z (POINT Z (1 2 3))";
+    assert_eq!(wkb_to_wkt(&wkb_of(wkt)).unwrap(), wkt);
+
+    let mut wkb = le_header(0x8000_0007); // GeometryCollection Z
+    wkb.extend_from_slice(&1u32.to_le_bytes());
+    wkb.extend_from_slice(&wkb_of("POINT (1 2)"));
+    assert!(wkb_to_wkt(&wkb).is_err());
 }
 
 #[test]
@@ -285,6 +348,21 @@ fn truncated_before_type_code_errors() {
     assert!(wkb_to_wkt(&[0x01, 0x01, 0x00]).is_err());
 }
 
+#[test]
+fn top_level_trailing_bytes_error() {
+    let mut wkb = wkb_of("POINT (1 2)");
+    wkb.extend_from_slice(&[0xDE, 0xAD, 0xBE, 0xEF]);
+    assert!(wkb_to_wkt(&wkb).is_err());
+    assert!(wkb_to_wkt_split_srid(&wkb).is_err());
+    assert!(hex_wkb_to_wkt(&hex::encode_upper(&wkb)).is_err());
+}
+
+#[test]
+fn geometry_depth_limit_is_enforced_for_wkb() {
+    assert!(wkb_to_wkt(&nested_geometrycollection_wkb(127)).is_ok());
+    assert!(wkb_to_wkt(&nested_geometrycollection_wkb(128)).is_err());
+}
+
 // ── MultiPoint edge cases ─────────────────────────────────────────────────────
 
 #[test]
@@ -319,6 +397,14 @@ fn multipoint_wrong_subtype_errors() {
     assert!(wkb_to_wkt(&wkb).is_err());
 }
 
+#[test]
+fn multipoint_child_dimension_mismatch_errors() {
+    let mut wkb = le_header(0x8000_0004); // MultiPoint Z
+    wkb.extend_from_slice(&1u32.to_le_bytes());
+    wkb.extend_from_slice(&wkb_of("POINT (1 2)"));
+    assert!(wkb_to_wkt(&wkb).is_err());
+}
+
 // ── MultiLineString edge cases ────────────────────────────────────────────────
 
 #[test]
@@ -346,6 +432,14 @@ fn multilinestring_wrong_subtype_errors() {
     assert!(wkb_to_wkt(&wkb).is_err());
 }
 
+#[test]
+fn multilinestring_child_dimension_mismatch_errors() {
+    let mut wkb = le_header(5); // MultiLineString XY
+    wkb.extend_from_slice(&1u32.to_le_bytes());
+    wkb.extend_from_slice(&wkb_of("LINESTRING Z (0 0 0, 1 1 1)"));
+    assert!(wkb_to_wkt(&wkb).is_err());
+}
+
 // ── MultiPolygon edge cases ───────────────────────────────────────────────────
 
 #[test]
@@ -370,5 +464,13 @@ fn multipolygon_wrong_subtype_errors() {
     wkb.extend_from_slice(&1u32.to_le_bytes()); // Point (not Polygon)
     wkb.extend_from_slice(&1.0f64.to_le_bytes());
     wkb.extend_from_slice(&2.0f64.to_le_bytes());
+    assert!(wkb_to_wkt(&wkb).is_err());
+}
+
+#[test]
+fn multipolygon_child_dimension_mismatch_errors() {
+    let mut wkb = le_header(6); // MultiPolygon XY
+    wkb.extend_from_slice(&1u32.to_le_bytes());
+    wkb.extend_from_slice(&wkb_of("POLYGON Z ((0 0 0, 1 0 0, 1 1 0, 0 0 0))"));
     assert!(wkb_to_wkt(&wkb).is_err());
 }

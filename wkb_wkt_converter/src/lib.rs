@@ -72,9 +72,11 @@ pub enum SridMode {
 ///
 /// **Note on validation:** for little-endian Point, LineString, and Polygon hex
 /// WKB input under `Strip` and `Set`, the fast path rewrites only the EWKB header
-/// after checking the byte length implied by the simple geometry body.  Big-endian,
-/// collection, ISO-dimensional, or malformed simple input falls back to a full
-/// parse round-trip which validates and normalises the geometry body.
+/// after checking the byte length implied by the simple geometry body and
+/// validating coordinate finiteness.  Big-endian, collection, ISO-dimensional,
+/// or malformed simple input falls back to a full parse round-trip which
+/// validates and normalises the geometry body.  Validating WKB paths reject
+/// trailing top-level bytes.
 pub fn text_to_wkb(text: &str, srid: SridMode) -> Result<Vec<u8>> {
     let trimmed = text.trim();
     match srid {
@@ -226,10 +228,15 @@ pub fn text_to_wkt(text: &str, srid: SridMode, normalize_wkt: bool) -> Result<St
 ///
 /// `srid` controls SRID handling in the output — see [`SridMode`].
 ///
-/// **Note:** for lowercase hex input under [`SridMode::Auto`], the output is
-/// the uppercase re-encoding of the decoded bytes (not identical to the input
-/// hex string).
+/// **Note:** hex input under [`SridMode::Auto`] is validated as hex text and
+/// uppercased without WKB structure validation.
 pub fn text_to_hex_wkb(text: &str, srid: SridMode) -> Result<String> {
+    let trimmed = text.trim();
+    if srid == SridMode::Auto {
+        if let Some(hex) = try_normalize_hex_uppercase(trimmed) {
+            return Ok(hex);
+        }
+    }
     text_to_wkb(text, srid).map(|b| encode_hex(&b))
 }
 
@@ -314,6 +321,29 @@ fn try_decode_hex(s: &str) -> Option<Vec<u8>> {
     Some(out)
 }
 
+fn try_normalize_hex_uppercase(s: &str) -> Option<String> {
+    let bytes = s.as_bytes();
+    if bytes.is_empty() || !bytes.len().is_multiple_of(2) {
+        return None;
+    }
+
+    let first = HEX_NIBBLE_LUT[bytes[0] as usize];
+    if first > 0x0F {
+        return None;
+    }
+
+    let mut out = Vec::with_capacity(bytes.len());
+    out.push(bytes[0].to_ascii_uppercase());
+    for &byte in &bytes[1..] {
+        if HEX_NIBBLE_LUT[byte as usize] > 0x0F {
+            return None;
+        }
+        out.push(byte.to_ascii_uppercase());
+    }
+    // SAFETY: every byte is an ASCII hex digit, uppercased in place.
+    Some(unsafe { String::from_utf8_unchecked(out) })
+}
+
 /// Decode a hex string with detailed position-aware error messages.
 /// Used by [`hex_wkb_to_wkt`] where the caller knows the input must be hex.
 fn decode_hex(hex: &str) -> Result<Vec<u8>> {
@@ -357,7 +387,48 @@ fn read_le_u32_at(bytes: &[u8], offset: usize) -> Option<u32> {
     ))
 }
 
-fn exact_simple_le_wkb_len(
+fn read_le_f64_at(bytes: &[u8], offset: usize) -> Option<f64> {
+    let end = offset.checked_add(8)?;
+    Some(f64::from_le_bytes(
+        bytes.get(offset..end)?.try_into().unwrap(),
+    ))
+}
+
+fn validate_le_point_coords(bytes: &[u8], pos: usize, coord_count: usize) -> Option<()> {
+    let mut all_nan = true;
+    let mut all_finite = true;
+    for i in 0..coord_count {
+        let offset = pos.checked_add(i.checked_mul(8)?)?;
+        let value = read_le_f64_at(bytes, offset)?;
+        all_nan &= value.is_nan();
+        all_finite &= value.is_finite();
+    }
+    if all_nan || all_finite {
+        Some(())
+    } else {
+        None
+    }
+}
+
+fn validate_le_coord_seq(
+    bytes: &[u8],
+    mut pos: usize,
+    point_count: usize,
+    coord_count: usize,
+) -> Option<usize> {
+    for _ in 0..point_count {
+        for i in 0..coord_count {
+            let offset = pos.checked_add(i.checked_mul(8)?)?;
+            if !read_le_f64_at(bytes, offset)?.is_finite() {
+                return None;
+            }
+        }
+        pos = pos.checked_add(coord_count.checked_mul(8)?)?;
+    }
+    Some(pos)
+}
+
+fn exact_valid_simple_le_wkb_len(
     bytes: &[u8],
     body_start: usize,
     base_geom_type: u32,
@@ -369,19 +440,20 @@ fn exact_simple_le_wkb_len(
     let coord_bytes = coord_count.checked_mul(8)?;
 
     if base_geom_type == 1 {
+        validate_le_point_coords(bytes, body_start, coord_count)?;
         return body_start.checked_add(coord_bytes);
     }
 
     let mut pos = body_start.checked_add(4)?;
     let count = usize::try_from(read_le_u32_at(bytes, body_start)?).ok()?;
     if base_geom_type == 2 {
-        return pos.checked_add(count.checked_mul(coord_bytes)?);
+        return validate_le_coord_seq(bytes, pos, count, coord_count);
     }
 
     for _ in 0..count {
         let point_count = usize::try_from(read_le_u32_at(bytes, pos)?).ok()?;
         pos = pos.checked_add(4)?;
-        pos = pos.checked_add(point_count.checked_mul(coord_bytes)?)?;
+        pos = validate_le_coord_seq(bytes, pos, point_count, coord_count)?;
     }
     Some(pos)
 }
@@ -406,7 +478,9 @@ fn try_read_le_fast_path_header(bytes: &[u8]) -> Option<LeFastPathHeader> {
     } else {
         5
     };
-    if exact_simple_le_wkb_len(bytes, body_start, base_geom_type, known_dim_flags)? != bytes.len() {
+    if exact_valid_simple_le_wkb_len(bytes, body_start, base_geom_type, known_dim_flags)?
+        != bytes.len()
+    {
         return None;
     }
 
