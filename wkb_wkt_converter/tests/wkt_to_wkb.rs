@@ -405,6 +405,7 @@ fn non_ascii_malformed_input_errors_without_panic() {
     assert!(wkt_to_wkb("☃").is_err());
     assert!(wkt_to_wkb("POINT (1 2) ☃").is_err());
     assert!(wkt_to_wkb("POINT ☃").is_err());
+    assert!(wkt_to_wkb("POINTé (1 2)").is_err());
 }
 
 #[test]
