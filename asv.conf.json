@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "project": "wkb_wkt_converter",
+  "project_url": "https://github.com/adrien-berchet/wkb_wkt_converter",
+  "repo": ".",
+  "branches": ["main", "HEAD"],
+  "pythons": ["3.11"],
+  "environment_type": "virtualenv",
+  "benchmark_dir": "asv_benchmarks",
+  "env_dir": ".asv/env",
+  "results_dir": ".asv/results",
+  "html_dir": ".asv/html",
+  "build_command": [
+    "python -m pip wheel --no-deps -w {build_cache_dir} {build_dir}"
+  ]
+}
