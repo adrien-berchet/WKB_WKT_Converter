@@ -5,6 +5,9 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "High-performance streaming converter between WKT and WKB geometry formats"
+readme = "../README.md"
+keywords = ["wkb", "wkt", "ewkb", "ewkt", "gis"]
+categories = ["science::geo", "parser-implementations", "encoding"]
 
 [lib]
 name = "wkb_wkt_converter"
