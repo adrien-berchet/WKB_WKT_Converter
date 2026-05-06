@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Python bindings for wkb_wkt_converter"
+publish = false
 
 [lib]
 name = "wkb_wkt_converter_py"
