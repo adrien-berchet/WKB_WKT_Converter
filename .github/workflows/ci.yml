@@ -85,11 +85,13 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install maturin and test dependencies
-        run: pip install maturin pytest hypothesis shapely
+      - name: Install maturin
+        run: pip install maturin
 
-      - name: Build and install Python wheel
-        run: maturin build --release && pip install --force-reinstall target/wheels/*.whl
+      - name: Build and install Python wheel with test dependencies
+        run: |
+          maturin build --release
+          pip install --force-reinstall "wkb_wkt_converter[test]" --find-links target/wheels/
 
       - name: Run Python tests
         run: pytest
@@ -116,13 +118,13 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install maturin and test dependencies
-        run: pip install maturin pytest hypothesis shapely
+      - name: Install maturin
+        run: pip install maturin
 
       - name: Build and test Python bindings with coverage
         run: |
           source <(cargo llvm-cov show-env --export-prefix)
           maturin build
-          pip install --force-reinstall target/wheels/*.whl
+          pip install --force-reinstall "wkb_wkt_converter[test]" --find-links target/wheels/
           pytest
           cargo llvm-cov report --package wkb_wkt_converter_py --fail-under-lines 100
