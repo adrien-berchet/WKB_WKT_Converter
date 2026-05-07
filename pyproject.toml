@@ -29,6 +29,7 @@ manifest-path = "wkb_wkt_converter_py/Cargo.toml"
 [project.optional-dependencies]
 asv = ["asv>=0.6.5", "virtualenv"]
 benchmark = ["pytest-benchmark", "shapely"]
+test = ["hypothesis", "pytest", "shapely"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
