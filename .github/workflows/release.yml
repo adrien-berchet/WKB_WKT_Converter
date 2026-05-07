@@ -18,8 +18,30 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  validate-release-version:
+    name: Validate release version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Check tag matches Cargo version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          tag_version="${GITHUB_REF_NAME#v}"
+          manifest_version="$(cargo pkgid --package wkb_wkt_converter | sed 's/.*#//')"
+
+          if [[ "${manifest_version}" != "${tag_version}" ]]; then
+            echo "::error title=Release version mismatch::Tag ${GITHUB_REF_NAME} points to wkb_wkt_converter ${manifest_version}. Update [workspace.package] version to ${tag_version} before creating the tag."
+            exit 1
+          fi
+
   build-sdist:
     name: Build sdist
+    needs: validate-release-version
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -40,6 +62,7 @@ jobs:
 
   build-linux-wheels:
     name: Build Linux wheel (${{ matrix.python-version }})
+    needs: validate-release-version
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -86,6 +109,7 @@ jobs:
 
   build-x64-native-wheels:
     name: Build ${{ matrix.platform.name }} wheel (${{ matrix.python-version }})
+    needs: validate-release-version
     runs-on: ${{ matrix.platform.os }}
     strategy:
       fail-fast: false
@@ -142,6 +166,7 @@ jobs:
 
   build-macos-arm64-wheels:
     name: Build macos-arm64 wheel (${{ matrix.python-version }})
+    needs: validate-release-version
     runs-on: macos-latest
     strategy:
       fail-fast: false
