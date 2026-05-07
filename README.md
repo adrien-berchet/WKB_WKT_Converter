@@ -173,6 +173,7 @@ pub enum Error {
 ### Build and install
 
 Requires [maturin](https://github.com/PyO3/maturin) and a Rust toolchain.
+Wheels include PEP 561 type stubs for static type checkers and IDEs.
 
 ```sh
 pip install maturin
