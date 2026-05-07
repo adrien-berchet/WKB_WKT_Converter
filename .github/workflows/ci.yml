@@ -85,8 +85,8 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install maturin and pytest
-        run: pip install maturin pytest
+      - name: Install maturin and test dependencies
+        run: pip install maturin pytest hypothesis shapely
 
       - name: Build and install Python wheel
         run: maturin build --release && pip install --force-reinstall target/wheels/*.whl
@@ -116,8 +116,8 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install maturin and pytest
-        run: pip install maturin pytest
+      - name: Install maturin and test dependencies
+        run: pip install maturin pytest hypothesis shapely
 
       - name: Build and test Python bindings with coverage
         run: |
