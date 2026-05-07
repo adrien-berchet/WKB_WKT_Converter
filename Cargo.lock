@@ -133,14 +133,14 @@ checksum = "e6e4313cd5fcd3dad5cafa179702e2b244f760991f45397d14d4ebf38247da75"
 
 [[package]]
 name = "wkb_wkt_converter"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "hex",
 ]
 
 [[package]]
 name = "wkb_wkt_converter_py"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "pyo3",
  "wkb_wkt_converter",
