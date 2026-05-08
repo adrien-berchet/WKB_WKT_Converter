@@ -1,7 +1,7 @@
 /// Tests for the generic text_to_wkb / text_to_wkt / text_to_hex_wkb helpers.
 use wkb_wkt_converter::{
-    hex_wkb_to_wkt, text_to_hex_wkb, text_to_wkb, text_to_wkt, wkb_to_wkt, wkt_to_hex_wkb,
-    wkt_to_wkb, SridMode,
+    hex_wkb_to_wkt, text_to_hex_wkb, text_to_wkb, text_to_wkt, wkb_to_wkt as core_wkb_to_wkt,
+    wkt_to_hex_wkb as core_wkt_to_hex_wkb, wkt_to_wkb as core_wkt_to_wkb, Result, SridMode,
 };
 
 // Big-endian WKB for POINT (1 2): byte-order=0x00, type=0x00000001 (BE),
@@ -26,6 +26,18 @@ const POINT_HEX: &str = "0101000000000000000000F03F0000000000000040";
 const SRID_POINT_HEX: &str = "0101000020E6100000000000000000F03F0000000000000040";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
+
+fn wkb_to_wkt(wkb: &[u8]) -> Result<String> {
+    core_wkb_to_wkt(wkb, SridMode::Auto)
+}
+
+fn wkt_to_wkb(wkt: &str) -> Result<Vec<u8>> {
+    core_wkt_to_wkb(wkt, SridMode::Auto)
+}
+
+fn wkt_to_hex_wkb(wkt: &str) -> Result<String> {
+    core_wkt_to_hex_wkb(wkt, SridMode::Auto)
+}
 
 fn hex(wkt: &str) -> String {
     wkt_to_hex_wkb(wkt).unwrap()
@@ -187,7 +199,7 @@ fn decode_hex_invalid_low_nibble_errors() {
     // try_decode_hex("0Z") returns None (not valid hex), so text_to_wkb
     // would silently route to WKT parsing.  hex_wkb_to_wkt uses decode_hex
     // directly and therefore returns a descriptive error.
-    assert!(hex_wkb_to_wkt("0Z").is_err());
+    assert!(hex_wkb_to_wkt("0Z", SridMode::Auto).is_err());
 }
 
 #[test]
@@ -670,7 +682,7 @@ fn wkt_no_normalize_odd_length_all_hex_returned_as_unvalidated_wkt() {
 
 #[test]
 fn decode_hex_empty_string_errors() {
-    assert!(hex_wkb_to_wkt("").is_err());
+    assert!(hex_wkb_to_wkt("", SridMode::Auto).is_err());
 }
 
 #[test]

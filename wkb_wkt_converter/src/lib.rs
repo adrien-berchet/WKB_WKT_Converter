@@ -12,9 +12,20 @@ pub use error::{Error, Result};
 pub use types::{Dimension, GeomType};
 
 /// Converts WKB/EWKB bytes to a WKT/EWKT string.
-/// If the input is EWKB with an SRID, the output includes a `SRID=N;` prefix.
-pub fn wkb_to_wkt(wkb: &[u8]) -> Result<String> {
-    wkb_to_wkt::convert(wkb)
+///
+/// `srid` controls SRID handling in the output:
+/// - [`SridMode::Auto`]: mirror the input — `SRID=N;` prefix kept if present.
+/// - [`SridMode::Strip`]: always strip the `SRID=N;` prefix from the output.
+/// - [`SridMode::Set(n)`]: always prepend `SRID=n;`, overriding any SRID in the input.
+pub fn wkb_to_wkt(wkb: &[u8], srid: SridMode) -> Result<String> {
+    match srid {
+        SridMode::Auto => wkb_to_wkt::convert(wkb),
+        SridMode::Strip => wkb_to_wkt_split_srid(wkb).map(|(wkt, _)| wkt),
+        SridMode::Set(srid_val) => {
+            let (wkt, _) = wkb_to_wkt_split_srid(wkb)?;
+            Ok(format!("SRID={srid_val};{wkt}"))
+        }
+    }
 }
 
 /// Converts WKB/EWKB bytes to a WKT string, returning the SRID separately.
@@ -24,9 +35,17 @@ pub fn wkb_to_wkt_split_srid(wkb: &[u8]) -> Result<(String, Option<u32>)> {
 }
 
 /// Converts a WKT/EWKT string to EWKB bytes.
-/// If the input includes a `SRID=N;` prefix, the SRID is embedded in the output.
-pub fn wkt_to_wkb(wkt: &str) -> Result<Vec<u8>> {
-    wkt_to_wkb::convert(wkt)
+///
+/// `srid` controls SRID handling in the output:
+/// - [`SridMode::Auto`]: mirror the input — SRID kept if present, absent if not.
+/// - [`SridMode::Strip`]: always strip the SRID from the output.
+/// - [`SridMode::Set(n)`]: always embed SRID `n`, overriding any SRID in the input.
+pub fn wkt_to_wkb(wkt: &str, srid: SridMode) -> Result<Vec<u8>> {
+    match srid {
+        SridMode::Auto => wkt_to_wkb::convert(wkt),
+        SridMode::Strip => wkt_to_wkb_split_srid(wkt).map(|(wkb, _)| wkb),
+        SridMode::Set(srid_val) => wkt_to_wkb::convert_with_forced_srid(wkt, srid_val),
+    }
 }
 
 /// Converts a WKT/EWKT string to EWKB bytes, returning the SRID separately.
@@ -36,17 +55,38 @@ pub fn wkt_to_wkb_split_srid(wkt: &str) -> Result<(Vec<u8>, Option<u32>)> {
 }
 
 /// Converts a WKT/EWKT string to an uppercase hex-encoded EWKB string.
-pub fn wkt_to_hex_wkb(wkt: &str) -> Result<String> {
-    wkt_to_wkb::convert_to_hex(wkt)
+///
+/// `srid` controls SRID handling in the output:
+/// - [`SridMode::Auto`]: mirror the input — SRID kept if present, absent if not.
+/// - [`SridMode::Strip`]: always strip the SRID from the output.
+/// - [`SridMode::Set(n)`]: always embed SRID `n`, overriding any SRID in the input.
+pub fn wkt_to_hex_wkb(wkt: &str, srid: SridMode) -> Result<String> {
+    match srid {
+        SridMode::Auto => wkt_to_wkb::convert_to_hex(wkt),
+        SridMode::Strip => wkt_to_wkb::convert_to_hex_split_srid(wkt),
+        SridMode::Set(srid_val) => wkt_to_wkb::convert_to_hex_with_forced_srid(wkt, srid_val),
+    }
 }
 
 /// Converts a hex-encoded WKB/EWKB string to a WKT/EWKT string.
-pub fn hex_wkb_to_wkt(hex: &str) -> Result<String> {
+///
+/// `srid` controls SRID handling in the output:
+/// - [`SridMode::Auto`]: mirror the input — `SRID=N;` prefix kept if present.
+/// - [`SridMode::Strip`]: always strip the `SRID=N;` prefix from the output.
+/// - [`SridMode::Set(n)`]: always prepend `SRID=n;`, overriding any SRID in the input.
+pub fn hex_wkb_to_wkt(hex: &str, srid: SridMode) -> Result<String> {
     let bytes = decode_hex(hex)?;
-    wkb_to_wkt(&bytes)
+    match srid {
+        SridMode::Auto => wkb_to_wkt::convert(&bytes),
+        SridMode::Strip => wkb_to_wkt_split_srid(&bytes).map(|(wkt, _)| wkt),
+        SridMode::Set(srid_val) => {
+            let (wkt, _) = wkb_to_wkt_split_srid(&bytes)?;
+            Ok(format!("SRID={srid_val};{wkt}"))
+        }
+    }
 }
 
-/// Controls SRID handling in the output of [`text_to_wkb`], [`text_to_wkt`], and [`text_to_hex_wkb`].
+/// Controls SRID handling in the output of direct and generic converters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SridMode {
     /// Mirror the input: SRID is kept if present, absent if not.
@@ -82,7 +122,7 @@ pub fn text_to_wkb(text: &str, srid: SridMode) -> Result<Vec<u8>> {
             if let Some(bytes) = try_decode_hex(trimmed) {
                 Ok(bytes)
             } else {
-                wkt_to_wkb(trimmed)
+                wkt_to_wkb::convert(trimmed)
             }
         }
         SridMode::Strip => {
@@ -92,7 +132,7 @@ pub fn text_to_wkb(text: &str, srid: SridMode) -> Result<Vec<u8>> {
                     Some(Cow::Owned(out)) => Ok(out),
                     None => {
                         let (wkt, _) = wkb_to_wkt_split_srid(&bytes)?;
-                        wkt_to_wkb(&wkt)
+                        wkt_to_wkb::convert(&wkt)
                     }
                 }
             } else {
@@ -169,7 +209,7 @@ pub fn text_to_wkt(text: &str, srid: SridMode, normalize_wkt: bool) -> Result<St
     // Hex WKB is always decoded to normalised WKT.
     if let Some(decoded) = try_decode_hex(trimmed) {
         return match srid {
-            SridMode::Auto => wkb_to_wkt(&decoded),
+            SridMode::Auto => wkb_to_wkt::convert(&decoded),
             SridMode::Strip => wkb_to_wkt_split_srid(&decoded).map(|(s, _)| s),
             SridMode::Set(srid_val) => {
                 let (plain, _) = wkb_to_wkt_split_srid(&decoded)?;
@@ -194,16 +234,16 @@ pub fn text_to_wkt(text: &str, srid: SridMode, normalize_wkt: bool) -> Result<St
     // WKT input, normalisation enabled.
     match srid {
         SridMode::Auto => {
-            let wkb = wkt_to_wkb(trimmed)?;
-            wkb_to_wkt(&wkb)
+            let wkb = wkt_to_wkb::convert(trimmed)?;
+            wkb_to_wkt::convert(&wkb)
         }
         SridMode::Strip => {
             let (wkb, _) = wkt_to_wkb_split_srid(trimmed)?;
-            wkb_to_wkt(&wkb)
+            wkb_to_wkt::convert(&wkb)
         }
         SridMode::Set(srid_val) => {
             let wkb = wkt_to_wkb::convert_with_forced_srid(trimmed, srid_val)?;
-            wkb_to_wkt(&wkb)
+            wkb_to_wkt::convert(&wkb)
         }
     }
 }
