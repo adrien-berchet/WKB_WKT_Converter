@@ -70,9 +70,15 @@ fn wkt_to_hex_wkb(wkt: &str) -> PyResult<String> {
 }
 
 /// Converts a hex-encoded WKB/EWKB string to a WKT/EWKT string.
+///
+/// *srid* controls SRID handling in the output:
+/// - ``None`` (default): mirror the input — ``SRID=N;`` prefix kept if present, absent if not.
+/// - ``False``: always strip the ``SRID=N;`` prefix from the output.
+/// - integer: always prepend ``SRID=N;``, overriding whatever the input contains.
 #[pyfunction]
-fn hex_wkb_to_wkt(hex: &str) -> PyResult<String> {
-    core::hex_wkb_to_wkt(hex).map_err(to_py_err)
+#[pyo3(signature = (hex, srid=None))]
+fn hex_wkb_to_wkt(hex: &str, srid: Option<Bound<'_, PyAny>>) -> PyResult<String> {
+    core::hex_wkb_to_wkt(hex, parse_srid_arg(srid)?).map_err(to_py_err)
 }
 
 /// Converts a WKT/EWKT string or a hex-encoded WKB/EWKB string to an uppercase

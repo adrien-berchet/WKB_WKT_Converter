@@ -57,8 +57,8 @@ pub fn wkt_to_wkb_split_srid(wkt: &str) -> Result<(Vec<u8>, Option<u32>)>
 // WKT/EWKT → uppercase hex-encoded EWKB string
 pub fn wkt_to_hex_wkb(wkt: &str) -> Result<String>
 
-// Hex-encoded WKB/EWKB → WKT/EWKT string
-pub fn hex_wkb_to_wkt(hex: &str) -> Result<String>
+// Hex-encoded WKB/EWKB → WKT/EWKT string, with SRID output control
+pub fn hex_wkb_to_wkt(hex: &str, srid: SridMode) -> Result<String>
 ```
 
 #### Generic converters
@@ -74,7 +74,8 @@ pub fn text_to_wkt(text: &str, srid: SridMode, normalize_wkt: bool) -> Result<St
 pub fn text_to_hex_wkb(text: &str, srid: SridMode) -> Result<String>
 ```
 
-`SridMode` controls SRID handling in the output:
+`SridMode` controls SRID handling in the output of `hex_wkb_to_wkt` and the
+generic converters:
 
 | Variant | Behaviour |
 |---|---|
@@ -117,7 +118,7 @@ it follows the same unvalidated WKT fast path.
 ### Example
 
 ```rust
-use wkb_wkt_converter::{wkt_to_wkb, wkb_to_wkt, wkt_to_wkb_split_srid};
+use wkb_wkt_converter::{wkt_to_wkb, wkb_to_wkt, wkt_to_wkb_split_srid, hex_wkb_to_wkt};
 use wkb_wkt_converter::{text_to_wkt, text_to_hex_wkb, SridMode};
 
 // Basic round-trip
@@ -148,6 +149,8 @@ assert_eq!(wkt, "POINT (1 2)");
 // Add or override an SRID regardless of what the input contains
 let hex = text_to_hex_wkb("POINT (1 2)", SridMode::Set(4326))?;
 // hex is an EWKB string encoding SRID=4326;POINT (1 2)
+let wkt = hex_wkb_to_wkt(&hex, SridMode::Strip)?;
+assert_eq!(wkt, "POINT (1 2)");
 
 // Strip the SRID without re-encoding (fast path)
 let wkt = text_to_wkt("SRID=4326;POINT (1 2)", SridMode::Strip, false)?;
@@ -205,7 +208,7 @@ from wkb_wkt_converter import (
 | `wkt_to_wkb(wkt)` | `str` | `bytes` |
 | `wkt_to_wkb_split_srid(wkt)` | `str` | `(bytes, int \| None)` |
 | `wkt_to_hex_wkb(wkt)` | `str` | `str` |
-| `hex_wkb_to_wkt(hex_wkb)` | `str` | `str` |
+| `hex_wkb_to_wkt(hex_wkb, srid=None)` | `str` | `str` |
 
 All functions above raise `ValueError` on invalid input. (See `text_to_wkt` below for an exception when `normalize_wkt=False`.)
 
@@ -222,7 +225,8 @@ including odd-length all-hex text, is treated as WKT.
 | `text_to_wkt(text, srid=None, normalize_wkt=False)` | `str` |
 | `text_to_hex_wkb(text, srid=None)` | `str` |
 
-The `srid` keyword argument controls SRID handling in the output:
+The `srid` keyword argument on `hex_wkb_to_wkt` and the generic converters
+controls SRID handling in the output:
 
 | Value | Behaviour |
 |---|---|
@@ -266,6 +270,10 @@ assert wkt == "SRID=4326;POLYGON ((0 0, 1 0, 1 1, 0 0))"
 # Hex WKB (common PostGIS text format)
 hex_wkb = wkt_to_hex_wkb("POINT (1 2)")
 wkt = hex_wkb_to_wkt(hex_wkb)
+assert wkt == "POINT (1 2)"
+
+srid_hex_wkb = wkt_to_hex_wkb("SRID=4326;POINT (1 2)")
+wkt = hex_wkb_to_wkt(srid_hex_wkb, srid=False)
 assert wkt == "POINT (1 2)"
 
 # Generic converters: input format detected automatically

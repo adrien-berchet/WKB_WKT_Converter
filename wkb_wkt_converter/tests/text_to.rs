@@ -187,7 +187,7 @@ fn decode_hex_invalid_low_nibble_errors() {
     // try_decode_hex("0Z") returns None (not valid hex), so text_to_wkb
     // would silently route to WKT parsing.  hex_wkb_to_wkt uses decode_hex
     // directly and therefore returns a descriptive error.
-    assert!(hex_wkb_to_wkt("0Z").is_err());
+    assert!(hex_wkb_to_wkt("0Z", SridMode::Auto).is_err());
 }
 
 #[test]
@@ -670,7 +670,7 @@ fn wkt_no_normalize_odd_length_all_hex_returned_as_unvalidated_wkt() {
 
 #[test]
 fn decode_hex_empty_string_errors() {
-    assert!(hex_wkb_to_wkt("").is_err());
+    assert!(hex_wkb_to_wkt("", SridMode::Auto).is_err());
 }
 
 #[test]

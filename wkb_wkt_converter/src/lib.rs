@@ -41,12 +41,25 @@ pub fn wkt_to_hex_wkb(wkt: &str) -> Result<String> {
 }
 
 /// Converts a hex-encoded WKB/EWKB string to a WKT/EWKT string.
-pub fn hex_wkb_to_wkt(hex: &str) -> Result<String> {
+///
+/// `srid` controls SRID handling in the output:
+/// - [`SridMode::Auto`]: mirror the input — `SRID=N;` prefix kept if present.
+/// - [`SridMode::Strip`]: always strip the `SRID=N;` prefix from the output.
+/// - [`SridMode::Set(n)`]: always prepend `SRID=n;`, overriding any SRID in the input.
+pub fn hex_wkb_to_wkt(hex: &str, srid: SridMode) -> Result<String> {
     let bytes = decode_hex(hex)?;
-    wkb_to_wkt(&bytes)
+    match srid {
+        SridMode::Auto => wkb_to_wkt(&bytes),
+        SridMode::Strip => wkb_to_wkt_split_srid(&bytes).map(|(wkt, _)| wkt),
+        SridMode::Set(srid_val) => {
+            let (wkt, _) = wkb_to_wkt_split_srid(&bytes)?;
+            Ok(format!("SRID={srid_val};{wkt}"))
+        }
+    }
 }
 
-/// Controls SRID handling in the output of [`text_to_wkb`], [`text_to_wkt`], and [`text_to_hex_wkb`].
+/// Controls SRID handling in the output of [`hex_wkb_to_wkt`], [`text_to_wkb`],
+/// [`text_to_wkt`], and [`text_to_hex_wkb`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SridMode {
     /// Mirror the input: SRID is kept if present, absent if not.

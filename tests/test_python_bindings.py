@@ -137,9 +137,71 @@ def test_hex_wkb_to_wkt_roundtrip():
     assert m.hex_wkb_to_wkt(hex_wkb) == "POINT (1 2)"
 
 
+def test_hex_wkb_to_wkt_srid_none_is_default():
+    hex_wkb = m.wkt_to_hex_wkb("SRID=4326;POINT (1 2)")
+    assert m.hex_wkb_to_wkt(hex_wkb) == m.hex_wkb_to_wkt(hex_wkb, srid=None)
+
+
+def test_hex_wkb_to_wkt_srid_none_mirrors_input_with_srid():
+    hex_wkb = m.wkt_to_hex_wkb("SRID=4326;POINT (1 2)")
+    assert m.hex_wkb_to_wkt(hex_wkb, srid=None) == "SRID=4326;POINT (1 2)"
+
+
+def test_hex_wkb_to_wkt_srid_false_strips_srid():
+    hex_wkb = m.wkt_to_hex_wkb("SRID=4326;POINT (1 2)")
+    assert m.hex_wkb_to_wkt(hex_wkb, srid=False) == "POINT (1 2)"
+
+
+def test_hex_wkb_to_wkt_srid_false_no_srid_unchanged():
+    hex_wkb = m.wkt_to_hex_wkb("POINT (1 2)")
+    assert m.hex_wkb_to_wkt(hex_wkb, srid=False) == "POINT (1 2)"
+
+
+def test_hex_wkb_to_wkt_srid_int_adds_srid():
+    hex_wkb = m.wkt_to_hex_wkb("POINT (1 2)")
+    assert m.hex_wkb_to_wkt(hex_wkb, srid=4326) == "SRID=4326;POINT (1 2)"
+
+
+def test_hex_wkb_to_wkt_srid_int_overrides_srid():
+    hex_wkb = m.wkt_to_hex_wkb("SRID=4326;POINT (1 2)")
+    assert m.hex_wkb_to_wkt(hex_wkb, srid=3857) == "SRID=3857;POINT (1 2)"
+
+
+def test_hex_wkb_to_wkt_srid_zero_is_accepted():
+    hex_wkb = m.wkt_to_hex_wkb("POINT (1 2)")
+    assert m.hex_wkb_to_wkt(hex_wkb, srid=0) == "SRID=0;POINT (1 2)"
+
+
+def test_hex_wkb_to_wkt_srid_true_raises_value_error():
+    hex_wkb = m.wkt_to_hex_wkb("POINT (1 2)")
+    with pytest.raises(ValueError, match="srid=True is not valid"):
+        m.hex_wkb_to_wkt(hex_wkb, srid=True)
+
+
+def test_hex_wkb_to_wkt_srid_invalid_type_raises_value_error():
+    hex_wkb = m.wkt_to_hex_wkb("POINT (1 2)")
+    with pytest.raises(ValueError, match="srid must be None, False, or a non-negative integer"):
+        m.hex_wkb_to_wkt(hex_wkb, srid=3.14)
+
+
 def test_hex_wkb_to_wkt_invalid_raises_value_error():
     with pytest.raises(ValueError, match="invalid WKB"):
         m.hex_wkb_to_wkt("ZZ")
+
+
+def test_hex_wkb_to_wkt_invalid_raises_value_error_with_srid_control():
+    with pytest.raises(ValueError, match="invalid WKB"):
+        m.hex_wkb_to_wkt("ZZ", srid=False)
+    with pytest.raises(ValueError, match="invalid WKB"):
+        m.hex_wkb_to_wkt("ZZ", srid=4326)
+
+
+def test_hex_wkb_to_wkt_trailing_bytes_raise_with_srid_control():
+    hex_wkb = m.wkt_to_hex_wkb("POINT (1 2)") + "DEADBEEF"
+    with pytest.raises(ValueError, match="invalid WKB"):
+        m.hex_wkb_to_wkt(hex_wkb, srid=False)
+    with pytest.raises(ValueError, match="invalid WKB"):
+        m.hex_wkb_to_wkt(hex_wkb, srid=4326)
 
 
 # ── text_to_wkb ───────────────────────────────────────────────────────────────

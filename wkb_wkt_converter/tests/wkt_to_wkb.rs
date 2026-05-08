@@ -293,8 +293,8 @@ fn wkt_to_hex_wkb_point() {
         .chars()
         .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit()));
     // Must round-trip
-    use wkb_wkt_converter::hex_wkb_to_wkt;
-    assert_eq!(hex_wkb_to_wkt(&hex).unwrap(), "POINT (1 2)");
+    use wkb_wkt_converter::{hex_wkb_to_wkt, SridMode};
+    assert_eq!(hex_wkb_to_wkt(&hex, SridMode::Auto).unwrap(), "POINT (1 2)");
 }
 
 // ── Whitespace tolerance ──────────────────────────────────────────────────────
