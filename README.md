@@ -42,20 +42,20 @@ wkb_wkt_converter = { path = "wkb_wkt_converter" }
 ### Functions
 
 ```rust
-// WKB/EWKB → WKT/EWKT (SRID embedded as "SRID=N;" prefix when present)
-pub fn wkb_to_wkt(wkb: &[u8]) -> Result<String>
+// WKB/EWKB → WKT/EWKT, with SRID output control
+pub fn wkb_to_wkt(wkb: &[u8], srid: SridMode) -> Result<String>
 
 // WKB/EWKB → WKT, SRID returned separately (not in the string)
 pub fn wkb_to_wkt_split_srid(wkb: &[u8]) -> Result<(String, Option<u32>)>
 
-// WKT/EWKT → EWKB bytes (SRID embedded in bytes when present)
-pub fn wkt_to_wkb(wkt: &str) -> Result<Vec<u8>>
+// WKT/EWKT → EWKB bytes, with SRID output control
+pub fn wkt_to_wkb(wkt: &str, srid: SridMode) -> Result<Vec<u8>>
 
 // WKT/EWKT → EWKB bytes, SRID returned separately (not in bytes)
 pub fn wkt_to_wkb_split_srid(wkt: &str) -> Result<(Vec<u8>, Option<u32>)>
 
-// WKT/EWKT → uppercase hex-encoded EWKB string
-pub fn wkt_to_hex_wkb(wkt: &str) -> Result<String>
+// WKT/EWKT → uppercase hex-encoded EWKB string, with SRID output control
+pub fn wkt_to_hex_wkb(wkt: &str, srid: SridMode) -> Result<String>
 
 // Hex-encoded WKB/EWKB → WKT/EWKT string, with SRID output control
 pub fn hex_wkb_to_wkt(hex: &str, srid: SridMode) -> Result<String>
@@ -74,8 +74,7 @@ pub fn text_to_wkt(text: &str, srid: SridMode, normalize_wkt: bool) -> Result<St
 pub fn text_to_hex_wkb(text: &str, srid: SridMode) -> Result<String>
 ```
 
-`SridMode` controls SRID handling in the output of `hex_wkb_to_wkt` and the
-generic converters:
+`SridMode` controls SRID handling in the output of direct and generic converters:
 
 | Variant | Behaviour |
 |---|---|
@@ -122,13 +121,13 @@ use wkb_wkt_converter::{wkt_to_wkb, wkb_to_wkt, wkt_to_wkb_split_srid, hex_wkb_t
 use wkb_wkt_converter::{text_to_wkt, text_to_hex_wkb, SridMode};
 
 // Basic round-trip
-let wkb = wkt_to_wkb("POINT (1 2)")?;
-let wkt = wkb_to_wkt(&wkb)?;
+let wkb = wkt_to_wkb("POINT (1 2)", SridMode::Auto)?;
+let wkt = wkb_to_wkt(&wkb, SridMode::Auto)?;
 assert_eq!(wkt, "POINT (1 2)");
 
 // With SRID embedded
-let wkb = wkt_to_wkb("SRID=4326;POINT Z (1 2 3)")?;
-let wkt = wkb_to_wkt(&wkb)?;
+let wkb = wkt_to_wkb("SRID=4326;POINT Z (1 2 3)", SridMode::Auto)?;
+let wkt = wkb_to_wkt(&wkb, SridMode::Auto)?;
 assert_eq!(wkt, "SRID=4326;POINT Z (1 2 3)");
 
 // SRID split from geometry
@@ -137,8 +136,11 @@ assert_eq!(srid, Some(4326));
 // wkb contains a plain (non-EWKB) LineString
 
 // All geometry types and dimensions work the same way
-let wkb = wkt_to_wkb("MULTIPOLYGON ZM (((0 0 0 1, 1 0 0 1, 1 1 0 1, 0 0 0 1)))")?;
-let wkt = wkb_to_wkt(&wkb)?;
+let wkb = wkt_to_wkb(
+    "MULTIPOLYGON ZM (((0 0 0 1, 1 0 0 1, 1 1 0 1, 0 0 0 1)))",
+    SridMode::Auto,
+)?;
+let wkt = wkb_to_wkt(&wkb, SridMode::Auto)?;
 assert_eq!(wkt, "MULTIPOLYGON ZM (((0 0 0 1, 1 0 0 1, 1 1 0 1, 0 0 0 1)))");
 
 // Generic converters: input format (WKT or hex WKB) detected automatically
@@ -203,11 +205,11 @@ from wkb_wkt_converter import (
 
 | Function | Input | Output |
 |---|---|---|
-| `wkb_to_wkt(wkb)` | `bytes` | `str` |
+| `wkb_to_wkt(wkb, srid=None)` | `bytes` | `str` |
 | `wkb_to_wkt_split_srid(wkb)` | `bytes` | `(str, int \| None)` |
-| `wkt_to_wkb(wkt)` | `str` | `bytes` |
+| `wkt_to_wkb(wkt, srid=None)` | `str` | `bytes` |
 | `wkt_to_wkb_split_srid(wkt)` | `str` | `(bytes, int \| None)` |
-| `wkt_to_hex_wkb(wkt)` | `str` | `str` |
+| `wkt_to_hex_wkb(wkt, srid=None)` | `str` | `str` |
 | `hex_wkb_to_wkt(hex_wkb, srid=None)` | `str` | `str` |
 
 All functions above raise `ValueError` on invalid input. (See `text_to_wkt` below for an exception when `normalize_wkt=False`.)
@@ -225,8 +227,8 @@ including odd-length all-hex text, is treated as WKT.
 | `text_to_wkt(text, srid=None, normalize_wkt=False)` | `str` |
 | `text_to_hex_wkb(text, srid=None)` | `str` |
 
-The `srid` keyword argument on `hex_wkb_to_wkt` and the generic converters
-controls SRID handling in the output:
+The `srid` keyword argument on direct and generic converters controls SRID
+handling in the output:
 
 | Value | Behaviour |
 |---|---|

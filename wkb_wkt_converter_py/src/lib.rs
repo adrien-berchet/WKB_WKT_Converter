@@ -36,10 +36,15 @@ fn parse_srid_arg(val: Option<Bound<'_, PyAny>>) -> PyResult<core::SridMode> {
 }
 
 /// Converts WKB/EWKB bytes to a WKT/EWKT string.
-/// If the input is EWKB with an SRID, the output includes a `SRID=N;` prefix.
+///
+/// *srid* controls SRID handling in the output:
+/// - ``None`` (default): mirror the input — ``SRID=N;`` prefix kept if present, absent if not.
+/// - ``False``: always strip the ``SRID=N;`` prefix from the output.
+/// - integer: always prepend ``SRID=N;``, overriding whatever the input contains.
 #[pyfunction]
-fn wkb_to_wkt(wkb: &[u8]) -> PyResult<String> {
-    core::wkb_to_wkt(wkb).map_err(to_py_err)
+#[pyo3(signature = (wkb, srid=None))]
+fn wkb_to_wkt(wkb: &[u8], srid: Option<Bound<'_, PyAny>>) -> PyResult<String> {
+    core::wkb_to_wkt(wkb, parse_srid_arg(srid)?).map_err(to_py_err)
 }
 
 /// Converts WKB/EWKB bytes to a WKT string and returns the SRID separately.
@@ -50,10 +55,15 @@ fn wkb_to_wkt_split_srid(wkb: &[u8]) -> PyResult<(String, Option<u32>)> {
 }
 
 /// Converts a WKT/EWKT string to EWKB bytes.
-/// If the input includes a `SRID=N;` prefix, the SRID is embedded in the output.
+///
+/// *srid* controls SRID handling in the output:
+/// - ``None`` (default): mirror the input — SRID is kept if present, absent if not.
+/// - ``False``: always strip the SRID from the output.
+/// - integer: always embed this SRID, overriding whatever the input contains.
 #[pyfunction]
-fn wkt_to_wkb(wkt: &str) -> PyResult<Vec<u8>> {
-    core::wkt_to_wkb(wkt).map_err(to_py_err)
+#[pyo3(signature = (wkt, srid=None))]
+fn wkt_to_wkb(wkt: &str, srid: Option<Bound<'_, PyAny>>) -> PyResult<Vec<u8>> {
+    core::wkt_to_wkb(wkt, parse_srid_arg(srid)?).map_err(to_py_err)
 }
 
 /// Converts a WKT/EWKT string to EWKB bytes and returns the SRID separately.
@@ -64,9 +74,15 @@ fn wkt_to_wkb_split_srid(wkt: &str) -> PyResult<(Vec<u8>, Option<u32>)> {
 }
 
 /// Converts a WKT/EWKT string to an uppercase hex-encoded EWKB string.
+///
+/// *srid* controls SRID handling in the output:
+/// - ``None`` (default): mirror the input — SRID is kept if present, absent if not.
+/// - ``False``: always strip the SRID from the output.
+/// - integer: always embed this SRID, overriding whatever the input contains.
 #[pyfunction]
-fn wkt_to_hex_wkb(wkt: &str) -> PyResult<String> {
-    core::wkt_to_hex_wkb(wkt).map_err(to_py_err)
+#[pyo3(signature = (wkt, srid=None))]
+fn wkt_to_hex_wkb(wkt: &str, srid: Option<Bound<'_, PyAny>>) -> PyResult<String> {
+    core::wkt_to_hex_wkb(wkt, parse_srid_arg(srid)?).map_err(to_py_err)
 }
 
 /// Converts a hex-encoded WKB/EWKB string to a WKT/EWKT string.

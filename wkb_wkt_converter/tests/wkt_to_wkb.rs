@@ -1,6 +1,21 @@
 /// WKT → WKB tests. Where possible we verify the exact bytes against known
 /// PostGIS output. All tests also include a round-trip assertion.
-use wkb_wkt_converter::{wkb_to_wkt, wkt_to_hex_wkb, wkt_to_wkb, wkt_to_wkb_split_srid};
+use wkb_wkt_converter::{
+    wkb_to_wkt as core_wkb_to_wkt, wkt_to_hex_wkb as core_wkt_to_hex_wkb,
+    wkt_to_wkb as core_wkt_to_wkb, wkt_to_wkb_split_srid, Result, SridMode,
+};
+
+fn wkb_to_wkt(wkb: &[u8]) -> Result<String> {
+    core_wkb_to_wkt(wkb, SridMode::Auto)
+}
+
+fn wkt_to_wkb(wkt: &str) -> Result<Vec<u8>> {
+    core_wkt_to_wkb(wkt, SridMode::Auto)
+}
+
+fn wkt_to_hex_wkb(wkt: &str) -> Result<String> {
+    core_wkt_to_hex_wkb(wkt, SridMode::Auto)
+}
 
 fn roundtrip(wkt: &str) -> String {
     let wkb = wkt_to_wkb(wkt).unwrap();
@@ -75,6 +90,96 @@ fn point_no_srid_split() {
     let (wkb, srid) = wkt_to_wkb_split_srid("POINT (1 2)").unwrap();
     assert_eq!(srid, None);
     assert_eq!(wkb_to_wkt(&wkb).unwrap(), "POINT (1 2)");
+}
+
+#[test]
+fn wkt_to_wkb_auto_preserves_srid() {
+    let wkb = core_wkt_to_wkb("SRID=4326;POINT (1 2)", SridMode::Auto).unwrap();
+    assert_eq!(wkb_to_wkt(&wkb).unwrap(), "SRID=4326;POINT (1 2)");
+}
+
+#[test]
+fn wkt_to_wkb_strip_removes_srid() {
+    let wkb = core_wkt_to_wkb("SRID=4326;POINT (1 2)", SridMode::Strip).unwrap();
+    assert_eq!(wkb_to_wkt(&wkb).unwrap(), "POINT (1 2)");
+}
+
+#[test]
+fn wkt_to_wkb_strip_without_srid_is_noop() {
+    let wkb = core_wkt_to_wkb("POINT (1 2)", SridMode::Strip).unwrap();
+    assert_eq!(wkb_to_wkt(&wkb).unwrap(), "POINT (1 2)");
+}
+
+#[test]
+fn wkt_to_wkb_set_adds_srid() {
+    let wkb = core_wkt_to_wkb("POINT (1 2)", SridMode::Set(4326)).unwrap();
+    assert_eq!(wkb_to_wkt(&wkb).unwrap(), "SRID=4326;POINT (1 2)");
+}
+
+#[test]
+fn wkt_to_wkb_set_overrides_srid() {
+    let wkb = core_wkt_to_wkb("SRID=4326;POINT (1 2)", SridMode::Set(3857)).unwrap();
+    assert_eq!(wkb_to_wkt(&wkb).unwrap(), "SRID=3857;POINT (1 2)");
+}
+
+#[test]
+fn wkt_to_wkb_set_zero_is_accepted() {
+    let wkb = core_wkt_to_wkb("POINT (1 2)", SridMode::Set(0)).unwrap();
+    assert_eq!(wkb_to_wkt(&wkb).unwrap(), "SRID=0;POINT (1 2)");
+}
+
+#[test]
+fn wkt_to_hex_wkb_auto_preserves_srid() {
+    let hex = core_wkt_to_hex_wkb("SRID=4326;POINT (1 2)", SridMode::Auto).unwrap();
+    assert_eq!(
+        wkb_to_wkt(&hex::decode(hex).unwrap()).unwrap(),
+        "SRID=4326;POINT (1 2)"
+    );
+}
+
+#[test]
+fn wkt_to_hex_wkb_strip_removes_srid() {
+    let hex = core_wkt_to_hex_wkb("SRID=4326;POINT (1 2)", SridMode::Strip).unwrap();
+    assert_eq!(
+        wkb_to_wkt(&hex::decode(hex).unwrap()).unwrap(),
+        "POINT (1 2)"
+    );
+}
+
+#[test]
+fn wkt_to_hex_wkb_strip_without_srid_is_noop() {
+    let hex = core_wkt_to_hex_wkb("POINT (1 2)", SridMode::Strip).unwrap();
+    assert_eq!(
+        wkb_to_wkt(&hex::decode(hex).unwrap()).unwrap(),
+        "POINT (1 2)"
+    );
+}
+
+#[test]
+fn wkt_to_hex_wkb_set_adds_srid() {
+    let hex = core_wkt_to_hex_wkb("POINT (1 2)", SridMode::Set(4326)).unwrap();
+    assert_eq!(
+        wkb_to_wkt(&hex::decode(hex).unwrap()).unwrap(),
+        "SRID=4326;POINT (1 2)"
+    );
+}
+
+#[test]
+fn wkt_to_hex_wkb_set_overrides_srid() {
+    let hex = core_wkt_to_hex_wkb("SRID=4326;POINT (1 2)", SridMode::Set(3857)).unwrap();
+    assert_eq!(
+        wkb_to_wkt(&hex::decode(hex).unwrap()).unwrap(),
+        "SRID=3857;POINT (1 2)"
+    );
+}
+
+#[test]
+fn wkt_to_hex_wkb_set_zero_is_accepted() {
+    let hex = core_wkt_to_hex_wkb("POINT (1 2)", SridMode::Set(0)).unwrap();
+    assert_eq!(
+        wkb_to_wkt(&hex::decode(hex).unwrap()).unwrap(),
+        "SRID=0;POINT (1 2)"
+    );
 }
 
 // ── LineString ───────────────────────────────────────────────────────────────
@@ -293,7 +398,7 @@ fn wkt_to_hex_wkb_point() {
         .chars()
         .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit()));
     // Must round-trip
-    use wkb_wkt_converter::{hex_wkb_to_wkt, SridMode};
+    use wkb_wkt_converter::hex_wkb_to_wkt;
     assert_eq!(hex_wkb_to_wkt(&hex, SridMode::Auto).unwrap(), "POINT (1 2)");
 }
 
@@ -423,6 +528,30 @@ fn srid_missing_integer_errors() {
 fn srid_overflow_errors() {
     // Value exceeds u32::MAX — triggers the integer-out-of-range error path
     assert!(wkt_to_wkb("SRID=9999999999;POINT (1 2)").is_err());
+}
+
+#[test]
+fn wkt_to_wkb_invalid_input_errors_in_all_srid_modes() {
+    for mode in [SridMode::Auto, SridMode::Strip, SridMode::Set(4326)] {
+        assert!(core_wkt_to_wkb("NOT_A_GEOMETRY (1 2)", mode).is_err());
+    }
+}
+
+#[test]
+fn wkt_to_wkb_set_validates_invalid_srid_prefix() {
+    assert!(core_wkt_to_wkb("SRID=abc;POINT (1 2)", SridMode::Set(4326)).is_err());
+}
+
+#[test]
+fn wkt_to_hex_wkb_invalid_input_errors_in_all_srid_modes() {
+    for mode in [SridMode::Auto, SridMode::Strip, SridMode::Set(4326)] {
+        assert!(core_wkt_to_hex_wkb("NOT_A_GEOMETRY (1 2)", mode).is_err());
+    }
+}
+
+#[test]
+fn wkt_to_hex_wkb_set_validates_invalid_srid_prefix() {
+    assert!(core_wkt_to_hex_wkb("SRID=abc;POINT (1 2)", SridMode::Set(4326)).is_err());
 }
 
 // ── Tokenizer edge cases ──────────────────────────────────────────────────────
