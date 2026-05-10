@@ -415,6 +415,11 @@ def test_hex_wkb_to_wkt_invalid_raises_value_error():
         m.hex_wkb_to_wkt("ZZ")
 
 
+def test_hex_wkb_to_wkt_accepts_hex_wkb_keyword():
+    hex_wkb = m.wkt_to_hex_wkb("POINT (1 2)")
+    assert m.hex_wkb_to_wkt(hex_wkb=hex_wkb) == "POINT (1 2)"
+
+
 def test_hex_wkb_to_wkt_invalid_raises_value_error_with_srid_control():
     with pytest.raises(ValueError, match="invalid WKB"):
         m.hex_wkb_to_wkt("ZZ", srid=False)
@@ -577,8 +582,8 @@ def test_to_wkb_bytes_like_ascii_hex_is_raw_wkb_not_hex_text():
     assert m.to_wkb(hex_wkb.encode("ascii")) == hex_wkb.encode("ascii")
 
 
-def test_to_wkb_accepts_input_keyword():
-    assert m.to_wkb(input="POINT (1 2)") == m.wkt_to_wkb("POINT (1 2)")
+def test_to_wkb_accepts_source_keyword():
+    assert m.to_wkb(source="POINT (1 2)") == m.wkt_to_wkb("POINT (1 2)")
 
 
 def test_to_wkb_rejects_non_buffer_non_str_input():
@@ -780,8 +785,8 @@ def test_to_wkt_preserves_buffer_acquisition_errors():
         m.to_wkt(view)
 
 
-def test_to_wkt_accepts_input_keyword():
-    assert m.to_wkt(input="POINT (1 2)") == "POINT (1 2)"
+def test_to_wkt_accepts_source_keyword():
+    assert m.to_wkt(source="POINT (1 2)") == "POINT (1 2)"
 
 
 def test_to_wkt_srid_true_raises_value_error():
@@ -904,8 +909,8 @@ def test_to_hex_wkb_bytes_like_ascii_hex_is_raw_wkb_not_hex_text():
     assert m.to_hex_wkb(hex_wkb.encode("ascii")) == hex_wkb.encode("ascii").hex().upper()
 
 
-def test_to_hex_wkb_accepts_input_keyword():
-    assert m.to_hex_wkb(input="POINT (1 2)") == m.wkt_to_hex_wkb("POINT (1 2)")
+def test_to_hex_wkb_accepts_source_keyword():
+    assert m.to_hex_wkb(source="POINT (1 2)") == m.wkt_to_hex_wkb("POINT (1 2)")
 
 
 def test_to_hex_wkb_rejects_non_buffer_non_str_input():

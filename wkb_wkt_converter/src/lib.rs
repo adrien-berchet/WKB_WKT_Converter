@@ -114,7 +114,7 @@ pub enum Input<'a> {
     Wkb(&'a [u8]),
 }
 
-/// Converts any WKT/EWKT string or hex-encoded WKB/EWKB string to WKB bytes.
+/// Converts WKT/EWKT text, hex-encoded WKB/EWKB text, or raw WKB/EWKB bytes to WKB bytes.
 ///
 /// The input format is detected automatically: a non-empty string with even
 /// length composed entirely of hexadecimal characters is treated as hex WKB;

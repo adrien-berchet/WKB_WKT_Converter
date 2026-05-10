@@ -248,9 +248,9 @@ Bytes-like input is always treated as raw WKB/EWKB, not encoded text.
 
 | Function | Output |
 |---|---|
-| `to_wkb(input, srid=None)` | `bytes` |
-| `to_wkt(input, srid=None, normalize_wkt=False)` | `str` |
-| `to_hex_wkb(input, srid=None)` | `str` |
+| `to_wkb(source, srid=None)` | `bytes` |
+| `to_wkt(source, srid=None, normalize_wkt=False)` | `str` |
+| `to_hex_wkb(source, srid=None)` | `str` |
 
 The `srid` keyword argument on direct and generic converters controls SRID
 handling in the output:
@@ -265,9 +265,9 @@ Validation behavior matches the Rust API: WKT coordinates must be finite, while
 WKB coordinate payloads are treated as trusted-valid. Simple little-endian EWKB
 hex or bytes-like inputs under `srid=False` or an integer SRID are patched at
 the top-level header without scanning the body, so malformed bodies or trailing
-bytes can pass through as invalid output. `to_wkb(input, srid=None)` returns
+bytes can pass through as invalid output. `to_wkb(source, srid=None)` returns
 decoded/raw bytes without WKB structure validation, and
-`to_hex_wkb(input, srid=None)` validates and uppercases hex text or hex-encodes
+`to_hex_wkb(source, srid=None)` validates and uppercases hex text or hex-encodes
 bytes-like input without WKB structure validation.
 
 `to_wkt` accepts a `normalize_wkt` keyword argument (default `False`).

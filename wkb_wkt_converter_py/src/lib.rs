@@ -149,9 +149,9 @@ fn wkt_to_hex_wkb(wkt: &str, srid: Option<Bound<'_, PyAny>>) -> PyResult<String>
 /// - ``False``: always strip the ``SRID=N;`` prefix from the output.
 /// - integer: always prepend ``SRID=N;``, overriding whatever the input contains.
 #[pyfunction]
-#[pyo3(signature = (hex, srid=None))]
-fn hex_wkb_to_wkt(hex: &str, srid: Option<Bound<'_, PyAny>>) -> PyResult<String> {
-    core::hex_wkb_to_wkt(hex, parse_srid_arg(srid)?).map_err(to_py_err)
+#[pyo3(signature = (hex_wkb, srid=None))]
+fn hex_wkb_to_wkt(hex_wkb: &str, srid: Option<Bound<'_, PyAny>>) -> PyResult<String> {
+    core::hex_wkb_to_wkt(hex_wkb, parse_srid_arg(srid)?).map_err(to_py_err)
 }
 
 /// Converts a WKT/EWKT string, a hex-encoded WKB/EWKB string, or bytes-like
@@ -168,13 +168,13 @@ fn hex_wkb_to_wkt(hex: &str, srid: Option<Bound<'_, PyAny>>) -> PyResult<String>
 ///
 /// *srid* controls SRID handling in the output — see ``to_wkb``.
 #[pyfunction]
-#[pyo3(signature = (input, srid=None))]
-fn to_hex_wkb(input: Bound<'_, PyAny>, srid: Option<Bound<'_, PyAny>>) -> PyResult<String> {
+#[pyo3(signature = (source, srid=None))]
+fn to_hex_wkb(source: Bound<'_, PyAny>, srid: Option<Bound<'_, PyAny>>) -> PyResult<String> {
     let srid = parse_srid_arg(srid)?;
-    if let Ok(text) = input.cast::<PyString>() {
+    if let Ok(text) = source.cast::<PyString>() {
         return core::to_hex_wkb(core::Input::Text(text.to_str()?), srid).map_err(to_py_err);
     }
-    with_wkb_buffer(&input, "input", |wkb| {
+    with_wkb_buffer(&source, "source", |wkb| {
         core::to_hex_wkb(core::Input::Wkb(wkb), srid).map_err(to_py_err)
     })
 }
@@ -200,13 +200,13 @@ fn to_hex_wkb(input: Bound<'_, PyAny>, srid: Option<Bound<'_, PyAny>>) -> PyResu
 /// without scanning the geometry body. Malformed coordinate bodies or trailing
 /// bytes in those simple fast paths can pass through as invalid output bytes.
 #[pyfunction]
-#[pyo3(signature = (input, srid=None))]
-fn to_wkb(input: Bound<'_, PyAny>, srid: Option<Bound<'_, PyAny>>) -> PyResult<Vec<u8>> {
+#[pyo3(signature = (source, srid=None))]
+fn to_wkb(source: Bound<'_, PyAny>, srid: Option<Bound<'_, PyAny>>) -> PyResult<Vec<u8>> {
     let srid = parse_srid_arg(srid)?;
-    if let Ok(text) = input.cast::<PyString>() {
+    if let Ok(text) = source.cast::<PyString>() {
         return core::to_wkb(core::Input::Text(text.to_str()?), srid).map_err(to_py_err);
     }
-    with_wkb_buffer(&input, "input", |wkb| {
+    with_wkb_buffer(&source, "source", |wkb| {
         core::to_wkb(core::Input::Wkb(wkb), srid).map_err(to_py_err)
     })
 }
@@ -235,18 +235,18 @@ fn to_wkb(input: Bound<'_, PyAny>, srid: Option<Bound<'_, PyAny>>) -> PyResult<V
 /// copying; mutating a writable buffer during conversion is unsupported and may
 /// produce invalid or inconsistent results.
 #[pyfunction]
-#[pyo3(signature = (input, srid=None, normalize_wkt=false))]
+#[pyo3(signature = (source, srid=None, normalize_wkt=false))]
 fn to_wkt(
-    input: Bound<'_, PyAny>,
+    source: Bound<'_, PyAny>,
     srid: Option<Bound<'_, PyAny>>,
     normalize_wkt: bool,
 ) -> PyResult<String> {
     let srid = parse_srid_arg(srid)?;
-    if let Ok(text) = input.cast::<PyString>() {
+    if let Ok(text) = source.cast::<PyString>() {
         return core::to_wkt(core::Input::Text(text.to_str()?), srid, normalize_wkt)
             .map_err(to_py_err);
     }
-    with_wkb_buffer(&input, "input", |wkb| {
+    with_wkb_buffer(&source, "source", |wkb| {
         core::to_wkt(core::Input::Wkb(wkb), srid, normalize_wkt).map_err(to_py_err)
     })
 }
