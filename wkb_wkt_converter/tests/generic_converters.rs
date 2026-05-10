@@ -1,7 +1,8 @@
 /// Tests for the generic to_wkb / to_wkt / to_hex_wkb helpers.
 use wkb_wkt_converter::{
-    hex_wkb_to_wkt, to_hex_wkb, to_wkb, to_wkt, wkb_to_wkt as core_wkb_to_wkt,
-    wkt_to_hex_wkb as core_wkt_to_hex_wkb, wkt_to_wkb as core_wkt_to_wkb, Result, SridMode,
+    hex_wkb_to_wkt, to_hex_wkb as core_to_hex_wkb, to_wkb as core_to_wkb, to_wkt as core_to_wkt,
+    wkb_to_wkt as core_wkb_to_wkt, wkt_to_hex_wkb as core_wkt_to_hex_wkb,
+    wkt_to_wkb as core_wkt_to_wkb, Input, Result, SridMode,
 };
 
 // Big-endian WKB for POINT (1 2): byte-order=0x00, type=0x00000001 (BE),
@@ -37,6 +38,30 @@ fn wkt_to_wkb(wkt: &str) -> Result<Vec<u8>> {
 
 fn wkt_to_hex_wkb(wkt: &str) -> Result<String> {
     core_wkt_to_hex_wkb(wkt, SridMode::Auto)
+}
+
+fn to_wkb(text: &str, srid: SridMode) -> Result<Vec<u8>> {
+    core_to_wkb(Input::Text(text), srid)
+}
+
+fn to_wkb_bytes(wkb: &[u8], srid: SridMode) -> Result<Vec<u8>> {
+    core_to_wkb(Input::Wkb(wkb), srid)
+}
+
+fn to_wkt(text: &str, srid: SridMode, normalize_wkt: bool) -> Result<String> {
+    core_to_wkt(Input::Text(text), srid, normalize_wkt)
+}
+
+fn to_wkt_bytes(wkb: &[u8], srid: SridMode, normalize_wkt: bool) -> Result<String> {
+    core_to_wkt(Input::Wkb(wkb), srid, normalize_wkt)
+}
+
+fn to_hex_wkb(text: &str, srid: SridMode) -> Result<String> {
+    core_to_hex_wkb(Input::Text(text), srid)
+}
+
+fn to_hex_wkb_bytes(wkb: &[u8], srid: SridMode) -> Result<String> {
+    core_to_hex_wkb(Input::Wkb(wkb), srid)
 }
 
 fn hex(wkt: &str) -> String {
@@ -96,6 +121,24 @@ fn wkb_from_wkt_with_leading_whitespace() {
     let via_text = to_wkb("  POINT (1 2)  ", SridMode::Auto).unwrap();
     let direct = wkt_to_wkb("POINT (1 2)").unwrap();
     assert_eq!(via_text, direct);
+}
+
+#[test]
+fn wkb_input_auto_returns_raw_bytes_without_validation() {
+    let raw = POINT_HEX.as_bytes();
+    let wkb = to_wkb_bytes(raw, SridMode::Auto).unwrap();
+    assert_eq!(wkb, raw);
+}
+
+#[test]
+fn wkb_input_auto_does_not_decode_ascii_hex_bytes() {
+    let raw = POINT_HEX.as_bytes();
+    let wkb = to_wkb_bytes(raw, SridMode::Auto).unwrap();
+    assert_ne!(wkb, hex::decode(POINT_HEX).unwrap());
+    assert_eq!(
+        to_hex_wkb_bytes(raw, SridMode::Auto).unwrap(),
+        hex::encode_upper(raw)
+    );
 }
 
 // ── to_wkb: SridMode::Auto ──────────────────────────────────────────────
@@ -173,6 +216,17 @@ fn wkb_set_overrides_srid_in_hex_ewkb() {
     let h = hex("SRID=4326;POINT (1 2)");
     let wkb = to_wkb(&h, SridMode::Set(3857)).unwrap();
     assert_eq!(wkb_to_wkt(&wkb).unwrap(), "SRID=3857;POINT (1 2)");
+}
+
+#[test]
+fn wkb_input_strip_and_set_use_raw_bytes() {
+    let srid_wkb = hex::decode(SRID_POINT_HEX).unwrap();
+
+    let stripped = to_wkb_bytes(&srid_wkb, SridMode::Strip).unwrap();
+    assert_eq!(stripped, hex::decode(POINT_HEX).unwrap());
+
+    let set = to_wkb_bytes(&srid_wkb, SridMode::Set(3857)).unwrap();
+    assert_eq!(wkb_to_wkt(&set).unwrap(), "SRID=3857;POINT (1 2)");
 }
 
 // ── edge cases ───────────────────────────────────────────────────────────────
@@ -372,6 +426,24 @@ fn wkt_no_normalize_hex_input_still_normalises() {
     assert_eq!(to_wkt(&h, SridMode::Auto, false).unwrap(), "POINT (1 2)");
 }
 
+#[test]
+fn wkb_input_to_wkt_ignores_normalize_wkt() {
+    let wkb = wkt_to_wkb("SRID=4326;POINT (1 2)").unwrap();
+    assert_eq!(
+        to_wkt_bytes(&wkb, SridMode::Auto, false).unwrap(),
+        "SRID=4326;POINT (1 2)"
+    );
+    assert_eq!(
+        to_wkt_bytes(&wkb, SridMode::Strip, true).unwrap(),
+        "POINT (1 2)"
+    );
+}
+
+#[test]
+fn wkb_input_to_wkt_invalid_bytes_error_even_without_normalize() {
+    assert!(to_wkt_bytes(b"0101000000", SridMode::Auto, false).is_err());
+}
+
 // ── to_hex_wkb ──────────────────────────────────────────────────────────
 
 #[test]
@@ -455,6 +527,28 @@ fn hex_wkb_strip_removes_srid() {
     assert_eq!(wkt, "POINT (1 2)");
 }
 
+#[test]
+fn hex_wkb_from_wkb_input_auto_encodes_without_validation() {
+    let malformed = hex::decode(LE_SHORT_POINT_HEX).unwrap();
+    assert_eq!(
+        to_hex_wkb_bytes(&malformed, SridMode::Auto).unwrap(),
+        LE_SHORT_POINT_HEX
+    );
+}
+
+#[test]
+fn hex_wkb_from_wkb_input_strip_and_set_use_raw_bytes() {
+    let srid_wkb = hex::decode(SRID_POINT_HEX).unwrap();
+    assert_eq!(
+        to_hex_wkb_bytes(&srid_wkb, SridMode::Strip).unwrap(),
+        POINT_HEX
+    );
+    assert_eq!(
+        to_hex_wkb_bytes(&hex::decode(POINT_HEX).unwrap(), SridMode::Set(4326)).unwrap(),
+        SRID_POINT_HEX
+    );
+}
+
 // ── try_strip_srid_from_le_wkb / try_set_srid_in_le_wkb coverage ─────────────
 
 #[test]
@@ -471,6 +565,19 @@ fn wkb_strip_big_endian_hex_falls_back_to_round_trip() {
     // falls back to the full WKB→WKT→WKB round-trip which normalises to LE.
     let wkb = to_wkb(BE_POINT_HEX, SridMode::Strip).unwrap();
     assert_eq!(wkb_to_wkt(&wkb).unwrap(), "POINT (1 2)");
+}
+
+#[test]
+fn wkb_input_big_endian_falls_back_to_round_trip_for_strip_and_set() {
+    let be_wkb = hex::decode(BE_POINT_HEX).unwrap();
+
+    let stripped = to_wkb_bytes(&be_wkb, SridMode::Strip).unwrap();
+    assert_eq!(wkb_to_wkt(&stripped).unwrap(), "POINT (1 2)");
+    assert_eq!(stripped[0], 0x01);
+
+    let set = to_wkb_bytes(&be_wkb, SridMode::Set(4326)).unwrap();
+    assert_eq!(wkb_to_wkt(&set).unwrap(), "SRID=4326;POINT (1 2)");
+    assert_eq!(set[0], 0x01);
 }
 
 #[test]
@@ -495,6 +602,13 @@ fn wkb_set_malformed_short_srid_errors() {
 }
 
 #[test]
+fn wkb_input_strip_and_set_malformed_short_srid_errors() {
+    let malformed = hex::decode(LE_SHORT_SRID_HEX).unwrap();
+    assert!(to_wkb_bytes(&malformed, SridMode::Strip).is_err());
+    assert!(to_wkb_bytes(&malformed, SridMode::Set(4326)).is_err());
+}
+
+#[test]
 fn wkb_strip_short_point_header_passes_through() {
     let wkb = to_wkb(LE_SHORT_POINT_HEX, SridMode::Strip).unwrap();
     assert_eq!(wkb, hex::decode(LE_SHORT_POINT_HEX).unwrap());
@@ -510,6 +624,26 @@ fn wkb_set_short_point_header_patches_header_only() {
         0x2000_0001
     );
     assert_eq!(u32::from_le_bytes(wkb[5..9].try_into().unwrap()), 4326);
+}
+
+#[test]
+fn wkb_input_short_point_header_uses_same_fast_path() {
+    let malformed = hex::decode(LE_SHORT_POINT_HEX).unwrap();
+    assert_eq!(
+        to_wkb_bytes(&malformed, SridMode::Strip).unwrap(),
+        malformed
+    );
+
+    let with_srid = to_wkb_bytes(&malformed, SridMode::Set(4326)).unwrap();
+    assert_eq!(with_srid.len(), 9);
+    assert_eq!(
+        u32::from_le_bytes(with_srid[1..5].try_into().unwrap()),
+        0x2000_0001
+    );
+    assert_eq!(
+        u32::from_le_bytes(with_srid[5..9].try_into().unwrap()),
+        4326
+    );
 }
 
 #[test]
