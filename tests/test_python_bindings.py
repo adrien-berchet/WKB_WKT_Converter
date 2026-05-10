@@ -125,6 +125,18 @@ def test_wkb_to_wkt_empty_bytes_like_raises_value_error(make_input):
         m.wkb_to_wkt(make_input(b""))
 
 
+def test_wkb_to_wkt_rejects_non_buffer_input():
+    with pytest.raises(BufferError, match="contiguous one-byte buffer"):
+        m.wkb_to_wkt(123)
+
+
+def test_wkb_to_wkt_preserves_buffer_acquisition_errors():
+    view = memoryview(bytearray(b"\x99"))
+    view.release()
+    with pytest.raises(ValueError, match="released memoryview"):
+        m.wkb_to_wkt(view)
+
+
 def test_wkb_to_wkt_rejects_non_contiguous_memoryview():
     wkb = m.wkt_to_wkb("POINT (1 2)")
     with pytest.raises(BufferError, match="contiguous one-byte buffer"):
@@ -255,6 +267,11 @@ def test_wkb_to_wkt_split_srid_accepts_bytes_like(make_input):
     wkt, srid = m.wkb_to_wkt_split_srid(make_input(wkb))
     assert wkt == "POINT (1 2)"
     assert srid == 4326
+
+
+def test_wkb_to_wkt_split_srid_rejects_non_buffer_input():
+    with pytest.raises(BufferError, match="contiguous one-byte buffer"):
+        m.wkb_to_wkt_split_srid(123)
 
 
 def test_wkb_to_wkt_split_srid_no_srid():

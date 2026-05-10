@@ -2,7 +2,7 @@
 #![allow(clippy::useless_conversion)]
 
 use pyo3::buffer::PyUntypedBuffer;
-use pyo3::exceptions::{PyBufferError, PyValueError};
+use pyo3::exceptions::{PyBufferError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyBytes, PyBytesMethods};
 use wkb_wkt_converter as core;
@@ -41,7 +41,15 @@ fn with_wkb_buffer<R>(wkb: &Bound<'_, PyAny>, f: impl FnOnce(&[u8]) -> PyResult<
         return f(bytes.as_bytes());
     }
 
-    let buffer = PyUntypedBuffer::get(wkb)?;
+    let buffer = match PyUntypedBuffer::get(wkb) {
+        Ok(buffer) => buffer,
+        Err(err) if err.is_instance_of::<PyTypeError>(wkb.py()) => {
+            return Err(PyBufferError::new_err(
+                "wkb must be a contiguous one-byte buffer",
+            ));
+        }
+        Err(err) => return Err(err),
+    };
     if buffer.item_size() != 1 || !buffer.is_c_contiguous() {
         return Err(PyBufferError::new_err(
             "wkb must be a contiguous one-byte buffer",
