@@ -3,7 +3,8 @@ from typing import Literal, Optional, Tuple, Union
 # Runtime rejects srid=True and integers outside the u32 range. Type checkers
 # cannot precisely express those constraints while still accepting int SRIDs.
 _SridArg = Union[None, Literal[False], int]
-# Runtime also accepts equivalent contiguous one-byte buffer-protocol objects.
+# Runtime also accepts other C-contiguous one-byte buffer-protocol objects, but
+# static typing cannot express item size or contiguity for arbitrary exporters.
 _WkbInput = Union[bytes, bytearray, memoryview]
 
 
