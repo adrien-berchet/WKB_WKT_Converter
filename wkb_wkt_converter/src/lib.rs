@@ -115,7 +115,7 @@ pub enum SridMode {
 /// the top-level EWKB header. Big-endian, ISO-dimensional, collection, or
 /// non-canonical type headers fall back to a full parse round-trip which
 /// normalises the geometry body.
-pub fn text_to_wkb(text: &str, srid: SridMode) -> Result<Vec<u8>> {
+pub fn to_wkb(text: &str, srid: SridMode) -> Result<Vec<u8>> {
     let trimmed = text.trim();
     match srid {
         SridMode::Auto => {
@@ -176,7 +176,7 @@ pub fn text_to_wkb(text: &str, srid: SridMode) -> Result<Vec<u8>> {
 /// whitespace is always trimmed regardless of this flag.  An empty input string
 /// always returns an error regardless of this flag.  Has no effect when the
 /// input is hex WKB, which is always decoded to normalised WKT.
-pub fn text_to_wkt(text: &str, srid: SridMode, normalize_wkt: bool) -> Result<String> {
+pub fn to_wkt(text: &str, srid: SridMode, normalize_wkt: bool) -> Result<String> {
     let trimmed = text.trim();
     if trimmed.is_empty() {
         return Err(Error::InvalidWkt("empty input".into()));
@@ -257,7 +257,7 @@ pub fn text_to_wkt(text: &str, srid: SridMode, normalize_wkt: bool) -> Result<St
 ///
 /// **Note:** hex input under [`SridMode::Auto`] is validated as hex text and
 /// uppercased without WKB structure validation.
-pub fn text_to_hex_wkb(text: &str, srid: SridMode) -> Result<String> {
+pub fn to_hex_wkb(text: &str, srid: SridMode) -> Result<String> {
     let trimmed = text.trim();
     if srid == SridMode::Auto {
         if let Some(hex) = try_normalize_hex_uppercase(trimmed) {

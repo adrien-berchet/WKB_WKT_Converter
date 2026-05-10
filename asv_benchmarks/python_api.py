@@ -140,23 +140,23 @@ class PythonApiSuite:
     def time_hex_wkb_to_wkt(self, geometry):
         self.conv.hex_wkb_to_wkt(self.hex_wkb)
 
-    def time_text_to_wkb_from_wkt(self, geometry):
-        self.conv.text_to_wkb(self.wkt)
+    def time_to_wkb_from_wkt(self, geometry):
+        self.conv.to_wkb(self.wkt)
 
-    def time_text_to_wkb_from_hex(self, geometry):
-        self.conv.text_to_wkb(self.hex_wkb)
+    def time_to_wkb_from_hex(self, geometry):
+        self.conv.to_wkb(self.hex_wkb)
 
-    def time_text_to_wkt_from_wkt_no_normalize(self, geometry):
-        self.conv.text_to_wkt(self.wkt)
+    def time_to_wkt_from_wkt_no_normalize(self, geometry):
+        self.conv.to_wkt(self.wkt)
 
-    def time_text_to_wkt_from_wkt_normalize(self, geometry):
-        self.conv.text_to_wkt(self.wkt, normalize_wkt=True)
+    def time_to_wkt_from_wkt_normalize(self, geometry):
+        self.conv.to_wkt(self.wkt, normalize_wkt=True)
 
-    def time_text_to_wkt_from_hex(self, geometry):
-        self.conv.text_to_wkt(self.hex_wkb)
+    def time_to_wkt_from_hex(self, geometry):
+        self.conv.to_wkt(self.hex_wkb)
 
-    def time_text_to_hex_wkb_from_wkt(self, geometry):
-        self.conv.text_to_hex_wkb(self.wkt)
+    def time_to_hex_wkb_from_wkt(self, geometry):
+        self.conv.to_hex_wkb(self.wkt)
 
-    def time_text_to_hex_wkb_from_hex(self, geometry):
-        self.conv.text_to_hex_wkb(self.hex_wkb)
+    def time_to_hex_wkb_from_hex(self, geometry):
+        self.conv.to_hex_wkb(self.hex_wkb)

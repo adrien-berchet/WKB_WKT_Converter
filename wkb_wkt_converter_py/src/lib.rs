@@ -138,11 +138,11 @@ fn hex_wkb_to_wkt(hex: &str, srid: Option<Bound<'_, PyAny>>) -> PyResult<String>
 /// With ``srid=None``, hex input is validated as hex text and uppercased
 /// without WKB structure validation.
 ///
-/// *srid* controls SRID handling in the output — see ``text_to_wkb``.
+/// *srid* controls SRID handling in the output — see ``to_wkb``.
 #[pyfunction]
 #[pyo3(signature = (text, srid=None))]
-fn text_to_hex_wkb(text: &str, srid: Option<Bound<'_, PyAny>>) -> PyResult<String> {
-    core::text_to_hex_wkb(text, parse_srid_arg(srid)?).map_err(to_py_err)
+fn to_hex_wkb(text: &str, srid: Option<Bound<'_, PyAny>>) -> PyResult<String> {
+    core::to_hex_wkb(text, parse_srid_arg(srid)?).map_err(to_py_err)
 }
 
 /// Converts a WKT/EWKT string or a hex-encoded WKB/EWKB string to WKB bytes.
@@ -161,8 +161,8 @@ fn text_to_hex_wkb(text: &str, srid: Option<Bound<'_, PyAny>>) -> PyResult<Strin
 /// those simple fast paths can pass through as invalid output bytes.
 #[pyfunction]
 #[pyo3(signature = (text, srid=None))]
-fn text_to_wkb(text: &str, srid: Option<Bound<'_, PyAny>>) -> PyResult<Vec<u8>> {
-    core::text_to_wkb(text, parse_srid_arg(srid)?).map_err(to_py_err)
+fn to_wkb(text: &str, srid: Option<Bound<'_, PyAny>>) -> PyResult<Vec<u8>> {
+    core::to_wkb(text, parse_srid_arg(srid)?).map_err(to_py_err)
 }
 
 /// Converts a WKT/EWKT string or a hex-encoded WKB/EWKB string to a WKT string.
@@ -184,12 +184,8 @@ fn text_to_wkb(text: &str, srid: Option<Bound<'_, PyAny>>) -> PyResult<Vec<u8>> 
 /// follows the same unvalidated WKT fast path.
 #[pyfunction]
 #[pyo3(signature = (text, srid=None, normalize_wkt=false))]
-fn text_to_wkt(
-    text: &str,
-    srid: Option<Bound<'_, PyAny>>,
-    normalize_wkt: bool,
-) -> PyResult<String> {
-    core::text_to_wkt(text, parse_srid_arg(srid)?, normalize_wkt).map_err(to_py_err)
+fn to_wkt(text: &str, srid: Option<Bound<'_, PyAny>>, normalize_wkt: bool) -> PyResult<String> {
+    core::to_wkt(text, parse_srid_arg(srid)?, normalize_wkt).map_err(to_py_err)
 }
 
 #[pymodule(name = "wkb_wkt_converter")]
@@ -200,8 +196,8 @@ fn wkb_wkt_converter_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(wkt_to_wkb_split_srid, m)?)?;
     m.add_function(wrap_pyfunction!(wkt_to_hex_wkb, m)?)?;
     m.add_function(wrap_pyfunction!(hex_wkb_to_wkt, m)?)?;
-    m.add_function(wrap_pyfunction!(text_to_wkb, m)?)?;
-    m.add_function(wrap_pyfunction!(text_to_wkt, m)?)?;
-    m.add_function(wrap_pyfunction!(text_to_hex_wkb, m)?)?;
+    m.add_function(wrap_pyfunction!(to_wkb, m)?)?;
+    m.add_function(wrap_pyfunction!(to_wkt, m)?)?;
+    m.add_function(wrap_pyfunction!(to_hex_wkb, m)?)?;
     Ok(())
 }

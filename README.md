@@ -69,9 +69,9 @@ composed entirely of hex characters is treated as hex WKB; anything else,
 including odd-length all-hex text, is treated as WKT).
 
 ```rust
-pub fn text_to_wkb(text: &str, srid: SridMode) -> Result<Vec<u8>>
-pub fn text_to_wkt(text: &str, srid: SridMode, normalize_wkt: bool) -> Result<String>
-pub fn text_to_hex_wkb(text: &str, srid: SridMode) -> Result<String>
+pub fn to_wkb(text: &str, srid: SridMode) -> Result<Vec<u8>>
+pub fn to_wkt(text: &str, srid: SridMode, normalize_wkt: bool) -> Result<String>
+pub fn to_hex_wkb(text: &str, srid: SridMode) -> Result<String>
 ```
 
 `SridMode` controls SRID handling in the output of direct and generic converters:
@@ -91,13 +91,13 @@ Validation notes:
   truncation, unsupported type codes, excessive nesting, and trailing top-level
   bytes.
 - For canonical little-endian Point, LineString, and Polygon EWKB hex input,
-  `text_to_wkb(hex, SridMode::Strip | SridMode::Set(_))` and the equivalent
-  `text_to_hex_wkb` paths patch only the top-level header. Malformed coordinate
+  `to_wkb(hex, SridMode::Strip | SridMode::Set(_))` and the equivalent
+  `to_hex_wkb` paths patch only the top-level header. Malformed coordinate
   bodies or trailing bytes in those simple fast paths can pass through as
   invalid output. Big-endian, ISO-dimensional, collection, and non-canonical
   type headers fall back to a full normalising round-trip.
-- `text_to_wkb(hex, SridMode::Auto)` returns decoded bytes without WKB
-  structure validation, and `text_to_hex_wkb(hex, SridMode::Auto)` validates
+- `to_wkb(hex, SridMode::Auto)` returns decoded bytes without WKB
+  structure validation, and `to_hex_wkb(hex, SridMode::Auto)` validates
   and uppercases the hex text only.
 - `GeometryCollection` dimension tags are not inherited by child geometries.
   An XY collection may contain heterogeneous immediate children. A Z, M, or ZM
@@ -105,7 +105,7 @@ Validation notes:
 - WKT and WKB parsing reject geometry nesting beyond the implementation depth
   limit of 128.
 
-`text_to_wkt` accepts a `normalize_wkt: bool` parameter.  When `true`, WKT
+`to_wkt` accepts a `normalize_wkt: bool` parameter.  When `true`, WKT
 input is normalised (canonical casing, spacing, coordinate formatting) via a
 round-trip through WKB.  When `false`, only the SRID prefix is adjusted —
 **no validation is performed: malformed WKT is returned without error.**
@@ -118,7 +118,7 @@ it follows the same unvalidated WKT fast path.
 
 ```rust
 use wkb_wkt_converter::{wkt_to_wkb, wkb_to_wkt, wkt_to_wkb_split_srid, hex_wkb_to_wkt};
-use wkb_wkt_converter::{text_to_wkt, text_to_hex_wkb, SridMode};
+use wkb_wkt_converter::{to_wkt, to_hex_wkb, SridMode};
 
 // Basic round-trip
 let wkb = wkt_to_wkb("POINT (1 2)", SridMode::Auto)?;
@@ -145,17 +145,17 @@ assert_eq!(wkt, "MULTIPOLYGON ZM (((0 0 0 1, 1 0 0 1, 1 1 0 1, 0 0 0 1)))");
 
 // Generic converters: input format (WKT or hex WKB) detected automatically
 // Normalise WKT (casing, whitespace) — SridMode::Auto mirrors the input SRID
-let wkt = text_to_wkt("point(1 2)", SridMode::Auto, true)?;
+let wkt = to_wkt("point(1 2)", SridMode::Auto, true)?;
 assert_eq!(wkt, "POINT (1 2)");
 
 // Add or override an SRID regardless of what the input contains
-let hex = text_to_hex_wkb("POINT (1 2)", SridMode::Set(4326))?;
+let hex = to_hex_wkb("POINT (1 2)", SridMode::Set(4326))?;
 // hex is an EWKB string encoding SRID=4326;POINT (1 2)
 let wkt = hex_wkb_to_wkt(&hex, SridMode::Strip)?;
 assert_eq!(wkt, "POINT (1 2)");
 
 // Strip the SRID without re-encoding (fast path)
-let wkt = text_to_wkt("SRID=4326;POINT (1 2)", SridMode::Strip, false)?;
+let wkt = to_wkt("SRID=4326;POINT (1 2)", SridMode::Strip, false)?;
 assert_eq!(wkt, "POINT (1 2)");
 ```
 
@@ -197,9 +197,9 @@ from wkb_wkt_converter import (
     wkt_to_hex_wkb,
     hex_wkb_to_wkt,
     # generic converters
-    text_to_wkb,
-    text_to_wkt,
-    text_to_hex_wkb,
+    to_wkb,
+    to_wkt,
+    to_hex_wkb,
 )
 ```
 
@@ -216,7 +216,7 @@ WKB arguments in the Python API accept `bytes`, `bytearray`, `memoryview`, and
 other C-contiguous one-byte buffer objects. They are always treated as raw
 WKB/EWKB, not as encoded text.
 
-All functions above raise `ValueError` on invalid input. (See `text_to_wkt` below for an exception when `normalize_wkt=False`.)
+All functions above raise `ValueError` on invalid input. (See `to_wkt` below for an exception when `normalize_wkt=False`.)
 
 #### Generic converters
 
@@ -227,9 +227,9 @@ including odd-length all-hex text, is treated as WKT.
 
 | Function | Output |
 |---|---|
-| `text_to_wkb(text, srid=None)` | `bytes` |
-| `text_to_wkt(text, srid=None, normalize_wkt=False)` | `str` |
-| `text_to_hex_wkb(text, srid=None)` | `str` |
+| `to_wkb(text, srid=None)` | `bytes` |
+| `to_wkt(text, srid=None, normalize_wkt=False)` | `str` |
+| `to_hex_wkb(text, srid=None)` | `str` |
 
 The `srid` keyword argument on direct and generic converters controls SRID
 handling in the output:
@@ -244,11 +244,11 @@ Validation behavior matches the Rust API: WKT coordinates must be finite, while
 WKB coordinate payloads are treated as trusted-valid. Simple little-endian EWKB
 hex inputs under `srid=False` or an integer SRID are patched at the top-level
 header without scanning the body, so malformed bodies or trailing bytes can pass
-through as invalid output. `text_to_wkb(hex, srid=None)` returns decoded bytes
-without WKB structure validation, and `text_to_hex_wkb(hex, srid=None)`
+through as invalid output. `to_wkb(hex, srid=None)` returns decoded bytes
+without WKB structure validation, and `to_hex_wkb(hex, srid=None)`
 validates and uppercases the hex text only.
 
-`text_to_wkt` accepts a `normalize_wkt` keyword argument (default `False`).
+`to_wkt` accepts a `normalize_wkt` keyword argument (default `False`).
 When `True`, WKT input is normalised (canonical casing, spacing, coordinate
 formatting) via a round-trip through WKB.  When `False` (the default), only
 the SRID prefix is adjusted — **no validation is performed: malformed WKT is
@@ -262,7 +262,7 @@ path.
 
 ```python
 from wkb_wkt_converter import wkt_to_wkb, wkb_to_wkt, wkt_to_hex_wkb, hex_wkb_to_wkt
-from wkb_wkt_converter import text_to_wkt, text_to_hex_wkb
+from wkb_wkt_converter import to_wkt, to_hex_wkb
 
 wkb = wkt_to_wkb("POINT (1 2)")
 wkt = wkb_to_wkt(wkb)
@@ -283,17 +283,17 @@ wkt = hex_wkb_to_wkt(srid_hex_wkb, srid=False)
 assert wkt == "POINT (1 2)"
 
 # Generic converters: input format detected automatically
-wkt = text_to_wkt("point(1 2)", normalize_wkt=True)  # normalise WKT
+wkt = to_wkt("point(1 2)", normalize_wkt=True)  # normalise WKT
 assert wkt == "POINT (1 2)"
 
-wkt = text_to_wkt(hex_wkb)                           # hex WKB → WKT (always normalised)
+wkt = to_wkt(hex_wkb)                           # hex WKB → WKT (always normalised)
 assert wkt == "POINT (1 2)"
 
-hex_out = text_to_hex_wkb("POINT (1 2)", srid=4326)  # add SRID
-wkt = text_to_wkt(hex_out)
+hex_out = to_hex_wkb("POINT (1 2)", srid=4326)  # add SRID
+wkt = to_wkt(hex_out)
 assert wkt == "SRID=4326;POINT (1 2)"
 
-wkt = text_to_wkt("SRID=4326;POINT (1 2)", srid=False)  # strip SRID (fast path)
+wkt = to_wkt("SRID=4326;POINT (1 2)", srid=False)  # strip SRID (fast path)
 assert wkt == "POINT (1 2)"
 ```
 
@@ -382,9 +382,9 @@ Times are mean latency per call (lower is better). Speedup = shapely mean ÷ wkb
 | LineString (1000 pts) | 47.2 µs | 133.3 µs | 2.8× |
 | Polygon (1000 pts) | 126.7 µs | 156.0 µs | 1.2× |
 
-### Generic `text_to_*` converters
+### Generic `to_*` converters
 
-#### `text_to_wkb(wkt)`
+#### `to_wkb(wkt)`
 
 | Geometry | wkb_wkt_converter | shapely | Speedup |
 |:---|---:|---:|---:|
@@ -396,7 +396,7 @@ Times are mean latency per call (lower is better). Speedup = shapely mean ÷ wkb
 | LineString (1000 pts) | 24.0 µs | 215.0 µs | 9.0× |
 | Polygon (1000 pts) | 41.2 µs | 452.8 µs | 11.0× |
 
-#### `text_to_wkb(hex_wkb)`
+#### `to_wkb(hex_wkb)`
 
 | Geometry | wkb_wkt_converter | shapely | Speedup |
 |:---|---:|---:|---:|
@@ -408,7 +408,7 @@ Times are mean latency per call (lower is better). Speedup = shapely mean ÷ wkb
 | LineString (1000 pts) | 7.2 µs | 42.8 µs | 5.9× |
 | Polygon (1000 pts) | 7.2 µs | 43.3 µs | 6.0× |
 
-#### `text_to_wkt(wkt)` — `normalize_wkt=False` (fast path, no WKB round-trip)
+#### `to_wkt(wkt)` — `normalize_wkt=False` (fast path, no WKB round-trip)
 
 | Geometry | wkb_wkt_converter | shapely | Speedup |
 |:---|---:|---:|---:|
@@ -420,7 +420,7 @@ Times are mean latency per call (lower is better). Speedup = shapely mean ÷ wkb
 | LineString (1000 pts) | 521 ns | 306.5 µs | 588.0× |
 | Polygon (1000 pts) | 2.1 µs | 547.8 µs | 267.2× |
 
-#### `text_to_wkt(wkt)` — `normalize_wkt=True` (full WKT→WKB→WKT round-trip)
+#### `to_wkt(wkt)` — `normalize_wkt=True` (full WKT→WKB→WKT round-trip)
 
 | Geometry | wkb_wkt_converter | shapely | Speedup |
 |:---|---:|---:|---:|
@@ -432,7 +432,7 @@ Times are mean latency per call (lower is better). Speedup = shapely mean ÷ wkb
 | LineString (1000 pts) | 62.9 µs | 306.5 µs | 4.9× |
 | Polygon (1000 pts) | 162.3 µs | 547.8 µs | 3.4× |
 
-#### `text_to_wkt(hex_wkb)`
+#### `to_wkt(hex_wkb)`
 
 | Geometry | wkb_wkt_converter | shapely | Speedup |
 |:---|---:|---:|---:|
@@ -444,7 +444,7 @@ Times are mean latency per call (lower is better). Speedup = shapely mean ÷ wkb
 | LineString (1000 pts) | 46.8 µs | 132.5 µs | 2.8× |
 | Polygon (1000 pts) | 126.9 µs | 155.2 µs | 1.2× |
 
-#### `text_to_hex_wkb(wkt)`
+#### `to_hex_wkb(wkt)`
 
 | Geometry | wkb_wkt_converter | shapely | Speedup |
 |:---|---:|---:|---:|
@@ -456,7 +456,7 @@ Times are mean latency per call (lower is better). Speedup = shapely mean ÷ wkb
 | LineString (1000 pts) | 37.3 µs | 228.1 µs | 6.1× |
 | Polygon (1000 pts) | 54.7 µs | 463.0 µs | 8.5× |
 
-#### `text_to_hex_wkb(hex_wkb)`
+#### `to_hex_wkb(hex_wkb)`
 
 | Geometry | wkb_wkt_converter | shapely | Speedup |
 |:---|---:|---:|---:|
@@ -485,7 +485,7 @@ wkb_wkt_converter/          # core Rust library (zero runtime dependencies)
   tests/
     wkb_to_wkt.rs
     wkt_to_wkb.rs
-    text_to.rs
+    generic_converters.rs
 
 wkb_wkt_converter_py/       # Python bindings (PyO3 / maturin)
   src/lib.rs
