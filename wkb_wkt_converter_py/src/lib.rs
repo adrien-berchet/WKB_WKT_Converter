@@ -58,6 +58,8 @@ fn with_wkb_buffer<R>(wkb: &Bound<'_, PyAny>, f: impl FnOnce(&[u8]) -> PyResult<
         // is borrowed only for the callback below, while `buffer` remains in
         // scope. Callers keep Python argument extraction outside this borrowed
         // window, and the callback must not re-enter Python or release the GIL.
+        // For performance, writable exporters are borrowed too; the public API
+        // documents that mutating the buffer during conversion is unsupported.
         unsafe { std::slice::from_raw_parts(buffer.buf_ptr().cast::<u8>(), len) }
     };
     f(borrowed)
@@ -67,6 +69,9 @@ fn with_wkb_buffer<R>(wkb: &Bound<'_, PyAny>, f: impl FnOnce(&[u8]) -> PyResult<
 ///
 /// ``wkb`` may be ``bytes``, ``bytearray``, ``memoryview``, or another
 /// C-contiguous one-byte buffer object. It is always treated as raw WKB/EWKB.
+/// For performance, bytes-like inputs may be borrowed directly without
+/// copying; mutating a writable buffer during conversion is unsupported and may
+/// produce invalid or inconsistent results.
 ///
 /// *srid* controls SRID handling in the output:
 /// - ``None`` (default): mirror the input — ``SRID=N;`` prefix kept if present, absent if not.
@@ -81,6 +86,10 @@ fn wkb_to_wkt(wkb: Bound<'_, PyAny>, srid: Option<Bound<'_, PyAny>>) -> PyResult
 
 /// Converts WKB/EWKB bytes-like input to a WKT string and returns the SRID separately.
 /// The returned WKT string does not contain a `SRID=N;` prefix.
+///
+/// For performance, bytes-like inputs may be borrowed directly without
+/// copying; mutating a writable buffer during conversion is unsupported and may
+/// produce invalid or inconsistent results.
 #[pyfunction]
 fn wkb_to_wkt_split_srid(wkb: Bound<'_, PyAny>) -> PyResult<(String, Option<u32>)> {
     with_wkb_buffer(&wkb, |wkb| {

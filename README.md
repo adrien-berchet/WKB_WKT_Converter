@@ -216,6 +216,12 @@ WKB arguments in the Python API accept `bytes`, `bytearray`, `memoryview`, and
 other C-contiguous one-byte buffer objects. They are always treated as raw
 WKB/EWKB, not as encoded text.
 
+For performance, bytes-like WKB inputs may be borrowed directly without copying.
+Do not mutate a writable buffer while `wkb_to_wkt` or
+`wkb_to_wkt_split_srid` is reading it, including from native code, another
+thread, or shared memory. Mutating the buffer during conversion is unsupported
+and may produce invalid or inconsistent results.
+
 All functions above raise `ValueError` on invalid geometry input. The
 bytes-like WKB functions raise `BufferError` when the Python object does not
 provide a C-contiguous one-byte buffer. (See `to_wkt` below for an exception
