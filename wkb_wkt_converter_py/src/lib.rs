@@ -49,17 +49,18 @@ fn with_wkb_buffer<R>(wkb: &Bound<'_, PyAny>, f: impl FnOnce(&[u8]) -> PyResult<
     }
 
     let len = buffer.len_bytes();
-    let owned = if len == 0 {
-        Vec::new()
+    let borrowed: &[u8] = if len == 0 {
+        &[]
     } else {
-        // SAFETY: `PyUntypedBuffer::get` pins the exporter for the lifetime of
-        // `buffer`, and the checks above guarantee a C-contiguous memory region
-        // containing exactly `len` one-byte elements. The slice is copied
-        // immediately, so mutable Python exporters cannot alias the immutable
-        // WKB slice passed to core.
-        unsafe { std::slice::from_raw_parts(buffer.buf_ptr().cast::<u8>(), len).to_vec() }
+        // SAFETY: `PyUntypedBuffer::get` keeps the exporter alive for the
+        // lifetime of `buffer`, and the checks above guarantee a C-contiguous
+        // memory region containing exactly `len` one-byte elements. The slice
+        // is borrowed only for the callback below, while `buffer` remains in
+        // scope. Callers keep Python argument extraction outside this borrowed
+        // window, and the callback must not re-enter Python or release the GIL.
+        unsafe { std::slice::from_raw_parts(buffer.buf_ptr().cast::<u8>(), len) }
     };
-    f(&owned)
+    f(borrowed)
 }
 
 /// Converts WKB/EWKB bytes-like input to a WKT/EWKT string.
@@ -74,9 +75,8 @@ fn with_wkb_buffer<R>(wkb: &Bound<'_, PyAny>, f: impl FnOnce(&[u8]) -> PyResult<
 #[pyfunction]
 #[pyo3(signature = (wkb, srid=None))]
 fn wkb_to_wkt(wkb: Bound<'_, PyAny>, srid: Option<Bound<'_, PyAny>>) -> PyResult<String> {
-    with_wkb_buffer(&wkb, |wkb| {
-        core::wkb_to_wkt(wkb, parse_srid_arg(srid)?).map_err(to_py_err)
-    })
+    let srid = parse_srid_arg(srid)?;
+    with_wkb_buffer(&wkb, |wkb| core::wkb_to_wkt(wkb, srid).map_err(to_py_err))
 }
 
 /// Converts WKB/EWKB bytes-like input to a WKT string and returns the SRID separately.
