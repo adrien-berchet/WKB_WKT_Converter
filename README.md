@@ -216,7 +216,10 @@ WKB arguments in the Python API accept `bytes`, `bytearray`, `memoryview`, and
 other C-contiguous one-byte buffer objects. They are always treated as raw
 WKB/EWKB, not as encoded text.
 
-All functions above raise `ValueError` on invalid input. (See `to_wkt` below for an exception when `normalize_wkt=False`.)
+All functions above raise `ValueError` on invalid geometry input. The
+bytes-like WKB functions raise `BufferError` when the Python object does not
+provide a C-contiguous one-byte buffer. (See `to_wkt` below for an exception
+when `normalize_wkt=False`.)
 
 #### Generic converters
 

@@ -116,6 +116,15 @@ def test_wkb_to_wkt_invalid_bytes_like_raises_value_error(make_input):
         m.wkb_to_wkt(make_input(b"\x99"))
 
 
+@pytest.mark.parametrize("make_input", [
+    pytest.param(bytearray, id="bytearray"),
+    pytest.param(memoryview, id="memoryview"),
+])
+def test_wkb_to_wkt_empty_bytes_like_raises_value_error(make_input):
+    with pytest.raises(ValueError, match="invalid WKB"):
+        m.wkb_to_wkt(make_input(b""))
+
+
 def test_wkb_to_wkt_rejects_non_contiguous_memoryview():
     wkb = m.wkt_to_wkb("POINT (1 2)")
     with pytest.raises(BufferError, match="contiguous one-byte buffer"):
