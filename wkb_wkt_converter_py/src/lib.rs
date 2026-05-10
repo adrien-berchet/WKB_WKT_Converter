@@ -1,9 +1,10 @@
 // PyO3's #[pyfunction] macro expansion triggers this lint as a false positive.
 #![allow(clippy::useless_conversion)]
 
-use pyo3::exceptions::PyValueError;
+use pyo3::buffer::PyUntypedBuffer;
+use pyo3::exceptions::{PyBufferError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::PyBool;
+use pyo3::types::{PyBool, PyBytes, PyBytesMethods};
 use wkb_wkt_converter as core;
 
 fn to_py_err(e: core::Error) -> PyErr {
@@ -35,7 +36,36 @@ fn parse_srid_arg(val: Option<Bound<'_, PyAny>>) -> PyResult<core::SridMode> {
     }
 }
 
-/// Converts WKB/EWKB bytes to a WKT/EWKT string.
+fn with_wkb_buffer<R>(wkb: &Bound<'_, PyAny>, f: impl FnOnce(&[u8]) -> PyResult<R>) -> PyResult<R> {
+    if let Ok(bytes) = wkb.cast::<PyBytes>() {
+        return f(bytes.as_bytes());
+    }
+
+    let buffer = PyUntypedBuffer::get(wkb)?;
+    if buffer.item_size() != 1 || !buffer.is_c_contiguous() {
+        return Err(PyBufferError::new_err(
+            "wkb must be a contiguous one-byte buffer",
+        ));
+    }
+
+    let len = buffer.len_bytes();
+    let owned = if len == 0 {
+        Vec::new()
+    } else {
+        // SAFETY: `PyUntypedBuffer::get` pins the exporter for the lifetime of
+        // `buffer`, and the checks above guarantee a C-contiguous memory region
+        // containing exactly `len` one-byte elements. The slice is copied
+        // immediately, so mutable Python exporters cannot alias the immutable
+        // WKB slice passed to core.
+        unsafe { std::slice::from_raw_parts(buffer.buf_ptr().cast::<u8>(), len).to_vec() }
+    };
+    f(&owned)
+}
+
+/// Converts WKB/EWKB bytes-like input to a WKT/EWKT string.
+///
+/// ``wkb`` may be ``bytes``, ``bytearray``, ``memoryview``, or another
+/// C-contiguous one-byte buffer object. It is always treated as raw WKB/EWKB.
 ///
 /// *srid* controls SRID handling in the output:
 /// - ``None`` (default): mirror the input — ``SRID=N;`` prefix kept if present, absent if not.
@@ -43,15 +73,19 @@ fn parse_srid_arg(val: Option<Bound<'_, PyAny>>) -> PyResult<core::SridMode> {
 /// - integer: always prepend ``SRID=N;``, overriding whatever the input contains.
 #[pyfunction]
 #[pyo3(signature = (wkb, srid=None))]
-fn wkb_to_wkt(wkb: &[u8], srid: Option<Bound<'_, PyAny>>) -> PyResult<String> {
-    core::wkb_to_wkt(wkb, parse_srid_arg(srid)?).map_err(to_py_err)
+fn wkb_to_wkt(wkb: Bound<'_, PyAny>, srid: Option<Bound<'_, PyAny>>) -> PyResult<String> {
+    with_wkb_buffer(&wkb, |wkb| {
+        core::wkb_to_wkt(wkb, parse_srid_arg(srid)?).map_err(to_py_err)
+    })
 }
 
-/// Converts WKB/EWKB bytes to a WKT string and returns the SRID separately.
+/// Converts WKB/EWKB bytes-like input to a WKT string and returns the SRID separately.
 /// The returned WKT string does not contain a `SRID=N;` prefix.
 #[pyfunction]
-fn wkb_to_wkt_split_srid(wkb: &[u8]) -> PyResult<(String, Option<u32>)> {
-    core::wkb_to_wkt_split_srid(wkb).map_err(to_py_err)
+fn wkb_to_wkt_split_srid(wkb: Bound<'_, PyAny>) -> PyResult<(String, Option<u32>)> {
+    with_wkb_buffer(&wkb, |wkb| {
+        core::wkb_to_wkt_split_srid(wkb).map_err(to_py_err)
+    })
 }
 
 /// Converts a WKT/EWKT string to EWKB bytes.

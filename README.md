@@ -205,12 +205,16 @@ from wkb_wkt_converter import (
 
 | Function | Input | Output |
 |---|---|---|
-| `wkb_to_wkt(wkb, srid=None)` | `bytes` | `str` |
-| `wkb_to_wkt_split_srid(wkb)` | `bytes` | `(str, int \| None)` |
+| `wkb_to_wkt(wkb, srid=None)` | bytes-like WKB/EWKB | `str` |
+| `wkb_to_wkt_split_srid(wkb)` | bytes-like WKB/EWKB | `(str, int \| None)` |
 | `wkt_to_wkb(wkt, srid=None)` | `str` | `bytes` |
 | `wkt_to_wkb_split_srid(wkt)` | `str` | `(bytes, int \| None)` |
 | `wkt_to_hex_wkb(wkt, srid=None)` | `str` | `str` |
 | `hex_wkb_to_wkt(hex_wkb, srid=None)` | `str` | `str` |
+
+WKB arguments in the Python API accept `bytes`, `bytearray`, `memoryview`, and
+other C-contiguous one-byte buffer objects. They are always treated as raw
+WKB/EWKB, not as encoded text.
 
 All functions above raise `ValueError` on invalid input. (See `text_to_wkt` below for an exception when `normalize_wkt=False`.)
 

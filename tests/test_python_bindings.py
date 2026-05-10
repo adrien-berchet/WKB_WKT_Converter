@@ -5,6 +5,8 @@ These tests verify the Python layer: correct types, round-trips, SRID
 handling, and that errors surface as ValueError with a readable message.
 """
 
+from array import array
+
 import pytest
 import wkb_wkt_converter as m
 
@@ -87,6 +89,42 @@ def test_wkb_to_wkt_returns_str():
     wkb = m.wkt_to_wkb("POINT (1 2)")
     result = m.wkb_to_wkt(wkb)
     assert isinstance(result, str)
+
+
+@pytest.mark.parametrize("make_input", [
+    pytest.param(bytearray, id="bytearray"),
+    pytest.param(memoryview, id="memoryview"),
+    pytest.param(lambda wkb: memoryview(bytearray(wkb)), id="bytearray-memoryview"),
+    pytest.param(lambda wkb: memoryview(b"\x00" + wkb)[1:], id="sliced-memoryview"),
+    pytest.param(lambda wkb: array("B", wkb), id="unsigned-byte-array"),
+    pytest.param(
+        lambda wkb: array("b", (byte if byte < 128 else byte - 256 for byte in wkb)),
+        id="signed-byte-array",
+    ),
+])
+def test_wkb_to_wkt_accepts_bytes_like(make_input):
+    wkb = m.wkt_to_wkb("POINT (1 2)")
+    assert m.wkb_to_wkt(make_input(wkb)) == "POINT (1 2)"
+
+
+@pytest.mark.parametrize("make_input", [
+    pytest.param(bytearray, id="bytearray"),
+    pytest.param(memoryview, id="memoryview"),
+])
+def test_wkb_to_wkt_invalid_bytes_like_raises_value_error(make_input):
+    with pytest.raises(ValueError, match="invalid WKB"):
+        m.wkb_to_wkt(make_input(b"\x99"))
+
+
+def test_wkb_to_wkt_rejects_non_contiguous_memoryview():
+    wkb = m.wkt_to_wkb("POINT (1 2)")
+    with pytest.raises(BufferError, match="contiguous one-byte buffer"):
+        m.wkb_to_wkt(memoryview(wkb)[::2])
+
+
+def test_wkb_to_wkt_rejects_non_byte_buffer():
+    with pytest.raises(BufferError, match="contiguous one-byte buffer"):
+        m.wkb_to_wkt(array("H", [1, 2, 3]))
 
 
 def test_wkb_to_wkt_invalid_raises_value_error():
@@ -192,6 +230,20 @@ def test_wkt_to_wkb_split_srid_no_srid():
 def test_wkb_to_wkt_split_srid_returns_tuple():
     wkb = m.wkt_to_wkb("SRID=4326;POINT (1 2)")
     wkt, srid = m.wkb_to_wkt_split_srid(wkb)
+    assert wkt == "POINT (1 2)"
+    assert srid == 4326
+
+
+@pytest.mark.parametrize("make_input", [
+    pytest.param(bytearray, id="bytearray"),
+    pytest.param(memoryview, id="memoryview"),
+    pytest.param(lambda wkb: memoryview(bytearray(wkb)), id="bytearray-memoryview"),
+    pytest.param(lambda wkb: memoryview(b"\x00" + wkb)[1:], id="sliced-memoryview"),
+    pytest.param(lambda wkb: array("B", wkb), id="unsigned-byte-array"),
+])
+def test_wkb_to_wkt_split_srid_accepts_bytes_like(make_input):
+    wkb = m.wkt_to_wkb("SRID=4326;POINT (1 2)")
+    wkt, srid = m.wkb_to_wkt_split_srid(make_input(wkb))
     assert wkt == "POINT (1 2)"
     assert srid == 4326
 
