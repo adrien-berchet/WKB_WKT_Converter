@@ -63,15 +63,21 @@ pub fn hex_wkb_to_wkt(hex: &str, srid: SridMode) -> Result<String>
 
 #### Generic converters
 
-These functions accept **either** a WKT/EWKT string **or** a hex-encoded WKB/EWKB
-string and detect the format automatically (a non-empty, even-length string
-composed entirely of hex characters is treated as hex WKB; anything else,
-including odd-length all-hex text, is treated as WKT).
+These functions accept an explicit `Input`: a WKT/EWKT string, a hex-encoded
+WKB/EWKB string, or raw WKB/EWKB bytes. Text input is detected automatically
+(a non-empty, even-length string composed entirely of hex characters is treated
+as hex WKB; anything else, including odd-length all-hex text, is treated as
+WKT). `Input::Wkb` is always treated as raw WKB/EWKB, not encoded text.
 
 ```rust
-pub fn to_wkb(text: &str, srid: SridMode) -> Result<Vec<u8>>
-pub fn to_wkt(text: &str, srid: SridMode, normalize_wkt: bool) -> Result<String>
-pub fn to_hex_wkb(text: &str, srid: SridMode) -> Result<String>
+pub enum Input<'a> {
+    Text(&'a str),
+    Wkb(&'a [u8]),
+}
+
+pub fn to_wkb(input: Input<'_>, srid: SridMode) -> Result<Vec<u8>>
+pub fn to_wkt(input: Input<'_>, srid: SridMode, normalize_wkt: bool) -> Result<String>
+pub fn to_hex_wkb(input: Input<'_>, srid: SridMode) -> Result<String>
 ```
 
 `SridMode` controls SRID handling in the output of direct and generic converters:
@@ -90,15 +96,16 @@ Validation notes:
 - Direct WKB-to-WKT entry points still reject structurally invalid WKB such as
   truncation, unsupported type codes, excessive nesting, and trailing top-level
   bytes.
-- For canonical little-endian Point, LineString, and Polygon EWKB hex input,
-  `to_wkb(hex, SridMode::Strip | SridMode::Set(_))` and the equivalent
-  `to_hex_wkb` paths patch only the top-level header. Malformed coordinate
-  bodies or trailing bytes in those simple fast paths can pass through as
-  invalid output. Big-endian, ISO-dimensional, collection, and non-canonical
-  type headers fall back to a full normalising round-trip.
-- `to_wkb(hex, SridMode::Auto)` returns decoded bytes without WKB
-  structure validation, and `to_hex_wkb(hex, SridMode::Auto)` validates
-  and uppercases the hex text only.
+- For canonical little-endian Point, LineString, and Polygon EWKB hex or raw
+  WKB input, `to_wkb(input, SridMode::Strip | SridMode::Set(_))` and the
+  equivalent `to_hex_wkb` paths patch only the top-level header. Malformed
+  coordinate bodies or trailing bytes in those simple fast paths can pass
+  through as invalid output. Big-endian, ISO-dimensional, collection, and
+  non-canonical type headers fall back to a full normalising round-trip.
+- `to_wkb(Input::Text(hex), SridMode::Auto)` returns decoded bytes without WKB
+  structure validation, and `to_hex_wkb(Input::Text(hex), SridMode::Auto)`
+  validates and uppercases the hex text only. `Input::Wkb` under
+  `SridMode::Auto` is copied or hex-encoded without WKB structure validation.
 - `GeometryCollection` dimension tags are not inherited by child geometries.
   An XY collection may contain heterogeneous immediate children. A Z, M, or ZM
   collection requires each immediate child to declare the same dimension.
@@ -110,7 +117,7 @@ input is normalised (canonical casing, spacing, coordinate formatting) via a
 round-trip through WKB.  When `false`, only the SRID prefix is adjusted —
 **no validation is performed: malformed WKT is returned without error.**
 Leading/trailing whitespace is always trimmed regardless of this flag.  Hex
-WKB input is always decoded to normalised WKT regardless of this flag.
+WKB and raw WKB input are always decoded to normalised WKT regardless of this flag.
 Odd-length all-hex input is not detected as hex WKB; with `normalize_wkt=false`
 it follows the same unvalidated WKT fast path.
 
@@ -118,7 +125,7 @@ it follows the same unvalidated WKT fast path.
 
 ```rust
 use wkb_wkt_converter::{wkt_to_wkb, wkb_to_wkt, wkt_to_wkb_split_srid, hex_wkb_to_wkt};
-use wkb_wkt_converter::{to_wkt, to_hex_wkb, SridMode};
+use wkb_wkt_converter::{to_wkt, to_hex_wkb, Input, SridMode};
 
 // Basic round-trip
 let wkb = wkt_to_wkb("POINT (1 2)", SridMode::Auto)?;
@@ -143,19 +150,23 @@ let wkb = wkt_to_wkb(
 let wkt = wkb_to_wkt(&wkb, SridMode::Auto)?;
 assert_eq!(wkt, "MULTIPOLYGON ZM (((0 0 0 1, 1 0 0 1, 1 1 0 1, 0 0 0 1)))");
 
-// Generic converters: input format (WKT or hex WKB) detected automatically
+// Generic converters: input format (WKT, hex WKB, or raw WKB) selected explicitly/detected automatically
 // Normalise WKT (casing, whitespace) — SridMode::Auto mirrors the input SRID
-let wkt = to_wkt("point(1 2)", SridMode::Auto, true)?;
+let wkt = to_wkt(Input::Text("point(1 2)"), SridMode::Auto, true)?;
 assert_eq!(wkt, "POINT (1 2)");
 
 // Add or override an SRID regardless of what the input contains
-let hex = to_hex_wkb("POINT (1 2)", SridMode::Set(4326))?;
+let hex = to_hex_wkb(Input::Text("POINT (1 2)"), SridMode::Set(4326))?;
 // hex is an EWKB string encoding SRID=4326;POINT (1 2)
 let wkt = hex_wkb_to_wkt(&hex, SridMode::Strip)?;
 assert_eq!(wkt, "POINT (1 2)");
 
+// Raw WKB bytes can also go through the generic converters
+let wkt = to_wkt(Input::Wkb(&wkb), SridMode::Auto, false)?;
+assert_eq!(wkt, "MULTIPOLYGON ZM (((0 0 0 1, 1 0 0 1, 1 1 0 1, 0 0 0 1)))");
+
 // Strip the SRID without re-encoding (fast path)
-let wkt = to_wkt("SRID=4326;POINT (1 2)", SridMode::Strip, false)?;
+let wkt = to_wkt(Input::Text("SRID=4326;POINT (1 2)"), SridMode::Strip, false)?;
 assert_eq!(wkt, "POINT (1 2)");
 ```
 
@@ -218,10 +229,9 @@ other C-contiguous one-byte buffer objects. They are always treated as raw
 WKB/EWKB, not as encoded text.
 
 For performance, bytes-like WKB inputs may be borrowed directly without copying.
-Do not mutate a writable buffer while `wkb_to_wkt` or
-`wkb_to_wkt_split_srid` is reading it, including from native code, another
-thread, or shared memory. Mutating the buffer during conversion is unsupported
-and may produce invalid or inconsistent results.
+Do not mutate a writable buffer while a converter is reading it, including from
+native code, another thread, or shared memory. Mutating the buffer during
+conversion is unsupported and may produce invalid or inconsistent results.
 
 All functions above raise `ValueError` on invalid geometry input. The
 bytes-like WKB functions raise `BufferError` when the Python object does not
@@ -230,16 +240,17 @@ when `normalize_wkt=False`.)
 
 #### Generic converters
 
-These three functions accept **either** a WKT/EWKT string **or** a hex-encoded
-WKB/EWKB string and detect the format automatically. A non-empty, even-length
-string composed entirely of hex characters is treated as hex WKB; anything else,
-including odd-length all-hex text, is treated as WKT.
+These three functions accept a WKT/EWKT string, a hex-encoded WKB/EWKB string,
+or bytes-like WKB/EWKB input. String input is detected automatically: a
+non-empty, even-length string composed entirely of hex characters is treated as
+hex WKB; anything else, including odd-length all-hex text, is treated as WKT.
+Bytes-like input is always treated as raw WKB/EWKB, not encoded text.
 
 | Function | Output |
 |---|---|
-| `to_wkb(text, srid=None)` | `bytes` |
-| `to_wkt(text, srid=None, normalize_wkt=False)` | `str` |
-| `to_hex_wkb(text, srid=None)` | `str` |
+| `to_wkb(input, srid=None)` | `bytes` |
+| `to_wkt(input, srid=None, normalize_wkt=False)` | `str` |
+| `to_hex_wkb(input, srid=None)` | `str` |
 
 The `srid` keyword argument on direct and generic converters controls SRID
 handling in the output:
@@ -252,21 +263,22 @@ handling in the output:
 
 Validation behavior matches the Rust API: WKT coordinates must be finite, while
 WKB coordinate payloads are treated as trusted-valid. Simple little-endian EWKB
-hex inputs under `srid=False` or an integer SRID are patched at the top-level
-header without scanning the body, so malformed bodies or trailing bytes can pass
-through as invalid output. `to_wkb(hex, srid=None)` returns decoded bytes
-without WKB structure validation, and `to_hex_wkb(hex, srid=None)`
-validates and uppercases the hex text only.
+hex or bytes-like inputs under `srid=False` or an integer SRID are patched at
+the top-level header without scanning the body, so malformed bodies or trailing
+bytes can pass through as invalid output. `to_wkb(input, srid=None)` returns
+decoded/raw bytes without WKB structure validation, and
+`to_hex_wkb(input, srid=None)` validates and uppercases hex text or hex-encodes
+bytes-like input without WKB structure validation.
 
 `to_wkt` accepts a `normalize_wkt` keyword argument (default `False`).
 When `True`, WKT input is normalised (canonical casing, spacing, coordinate
 formatting) via a round-trip through WKB.  When `False` (the default), only
 the SRID prefix is adjusted — **no validation is performed: malformed WKT is
 returned without raising an error.**  Leading/trailing whitespace is always
-stripped regardless of this flag.  Hex WKB input is always decoded to
-normalised WKT regardless of this flag. Odd-length all-hex input is not detected
-as hex WKB; with `normalize_wkt=False` it follows the same unvalidated WKT fast
-path.
+stripped regardless of this flag.  Hex WKB and bytes-like WKB input are always
+decoded to normalised WKT regardless of this flag. Odd-length all-hex input is
+not detected as hex WKB; with `normalize_wkt=False` it follows the same
+unvalidated WKT fast path.
 
 ### Example
 
@@ -296,7 +308,10 @@ assert wkt == "POINT (1 2)"
 wkt = to_wkt("point(1 2)", normalize_wkt=True)  # normalise WKT
 assert wkt == "POINT (1 2)"
 
-wkt = to_wkt(hex_wkb)                           # hex WKB → WKT (always normalised)
+wkt = to_wkt(hex_wkb)                           # hex WKB -> WKT (always normalised)
+assert wkt == "POINT (1 2)"
+
+wkt = to_wkt(wkb)                               # raw WKB bytes -> WKT
 assert wkt == "POINT (1 2)"
 
 hex_out = to_hex_wkb("POINT (1 2)", srid=4326)  # add SRID

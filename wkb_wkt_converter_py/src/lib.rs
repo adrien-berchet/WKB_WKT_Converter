@@ -4,7 +4,7 @@
 use pyo3::buffer::PyUntypedBuffer;
 use pyo3::exceptions::{PyBufferError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyBool, PyBytes, PyBytesMethods};
+use pyo3::types::{PyBool, PyBytes, PyBytesMethods, PyString};
 use wkb_wkt_converter as core;
 
 fn to_py_err(e: core::Error) -> PyErr {
@@ -36,24 +36,28 @@ fn parse_srid_arg(val: Option<Bound<'_, PyAny>>) -> PyResult<core::SridMode> {
     }
 }
 
-fn with_wkb_buffer<R>(wkb: &Bound<'_, PyAny>, f: impl FnOnce(&[u8]) -> PyResult<R>) -> PyResult<R> {
-    if let Ok(bytes) = wkb.cast::<PyBytes>() {
+fn with_wkb_buffer<R>(
+    input: &Bound<'_, PyAny>,
+    arg_name: &str,
+    f: impl FnOnce(&[u8]) -> PyResult<R>,
+) -> PyResult<R> {
+    if let Ok(bytes) = input.cast::<PyBytes>() {
         return f(bytes.as_bytes());
     }
 
-    let buffer = match PyUntypedBuffer::get(wkb) {
+    let buffer = match PyUntypedBuffer::get(input) {
         Ok(buffer) => buffer,
-        Err(err) if err.is_instance_of::<PyTypeError>(wkb.py()) => {
-            return Err(PyBufferError::new_err(
-                "wkb must be a contiguous one-byte buffer",
-            ));
+        Err(err) if err.is_instance_of::<PyTypeError>(input.py()) => {
+            return Err(PyBufferError::new_err(format!(
+                "{arg_name} must be a contiguous one-byte buffer"
+            )));
         }
         Err(err) => return Err(err),
     };
     if buffer.item_size() != 1 || !buffer.is_c_contiguous() {
-        return Err(PyBufferError::new_err(
-            "wkb must be a contiguous one-byte buffer",
-        ));
+        return Err(PyBufferError::new_err(format!(
+            "{arg_name} must be a contiguous one-byte buffer"
+        )));
     }
 
     let len = buffer.len_bytes();
@@ -89,7 +93,9 @@ fn with_wkb_buffer<R>(wkb: &Bound<'_, PyAny>, f: impl FnOnce(&[u8]) -> PyResult<
 #[pyo3(signature = (wkb, srid=None))]
 fn wkb_to_wkt(wkb: Bound<'_, PyAny>, srid: Option<Bound<'_, PyAny>>) -> PyResult<String> {
     let srid = parse_srid_arg(srid)?;
-    with_wkb_buffer(&wkb, |wkb| core::wkb_to_wkt(wkb, srid).map_err(to_py_err))
+    with_wkb_buffer(&wkb, "wkb", |wkb| {
+        core::wkb_to_wkt(wkb, srid).map_err(to_py_err)
+    })
 }
 
 /// Converts WKB/EWKB bytes-like input to a WKT string and returns the SRID separately.
@@ -100,7 +106,7 @@ fn wkb_to_wkt(wkb: Bound<'_, PyAny>, srid: Option<Bound<'_, PyAny>>) -> PyResult
 /// produce invalid or inconsistent results.
 #[pyfunction]
 fn wkb_to_wkt_split_srid(wkb: Bound<'_, PyAny>) -> PyResult<(String, Option<u32>)> {
-    with_wkb_buffer(&wkb, |wkb| {
+    with_wkb_buffer(&wkb, "wkb", |wkb| {
         core::wkb_to_wkt_split_srid(wkb).map_err(to_py_err)
     })
 }
@@ -148,43 +154,68 @@ fn hex_wkb_to_wkt(hex: &str, srid: Option<Bound<'_, PyAny>>) -> PyResult<String>
     core::hex_wkb_to_wkt(hex, parse_srid_arg(srid)?).map_err(to_py_err)
 }
 
-/// Converts a WKT/EWKT string or a hex-encoded WKB/EWKB string to an uppercase
-/// hex-encoded EWKB string.
-/// The input format is detected automatically: non-empty, even-length all-hex
-/// text is treated as hex WKB; anything else is treated as WKT.
+/// Converts a WKT/EWKT string, a hex-encoded WKB/EWKB string, or bytes-like
+/// WKB/EWKB input to an uppercase hex-encoded EWKB string.
+/// The string input format is detected automatically: non-empty, even-length
+/// all-hex text is treated as hex WKB; anything else is treated as WKT.
+/// Bytes-like input is always treated as raw WKB/EWKB.
 /// With ``srid=None``, hex input is validated as hex text and uppercased
+/// without WKB structure validation, and bytes-like input is hex-encoded
 /// without WKB structure validation.
+/// For performance, bytes-like inputs may be borrowed directly without
+/// copying; mutating a writable buffer during conversion is unsupported and may
+/// produce invalid or inconsistent results.
 ///
 /// *srid* controls SRID handling in the output — see ``to_wkb``.
 #[pyfunction]
-#[pyo3(signature = (text, srid=None))]
-fn to_hex_wkb(text: &str, srid: Option<Bound<'_, PyAny>>) -> PyResult<String> {
-    core::to_hex_wkb(text, parse_srid_arg(srid)?).map_err(to_py_err)
+#[pyo3(signature = (input, srid=None))]
+fn to_hex_wkb(input: Bound<'_, PyAny>, srid: Option<Bound<'_, PyAny>>) -> PyResult<String> {
+    let srid = parse_srid_arg(srid)?;
+    if let Ok(text) = input.cast::<PyString>() {
+        return core::to_hex_wkb(core::Input::Text(text.to_str()?), srid).map_err(to_py_err);
+    }
+    with_wkb_buffer(&input, "input", |wkb| {
+        core::to_hex_wkb(core::Input::Wkb(wkb), srid).map_err(to_py_err)
+    })
 }
 
-/// Converts a WKT/EWKT string or a hex-encoded WKB/EWKB string to WKB bytes.
-/// The input format is detected automatically: non-empty, even-length all-hex
-/// text is treated as hex WKB; anything else is treated as WKT.
+/// Converts a WKT/EWKT string, a hex-encoded WKB/EWKB string, or bytes-like
+/// WKB/EWKB input to WKB bytes.
+/// The string input format is detected automatically: non-empty, even-length
+/// all-hex text is treated as hex WKB; anything else is treated as WKT.
+/// Bytes-like input is always treated as raw WKB/EWKB.
 ///
 /// *srid* controls SRID handling in the output:
 /// - ``None`` (default): mirror the input — SRID is kept if present, absent if not.
-///   Hex WKB bytes are returned as-is without WKB structure validation.
+///   Hex WKB and bytes-like WKB bytes are returned as-is without WKB structure validation.
 /// - ``False``: always strip the SRID from the output.
 /// - integer: always embed this SRID, overriding whatever the input contains.
 ///
+/// For performance, bytes-like inputs may be borrowed directly without
+/// copying; mutating a writable buffer during conversion is unsupported and may
+/// produce invalid or inconsistent results.
+///
 /// For ``False`` and integer SRIDs, canonical little-endian Point, LineString,
-/// and Polygon EWKB hex input is patched at the top-level header without
-/// scanning the geometry body. Malformed coordinate bodies or trailing bytes in
-/// those simple fast paths can pass through as invalid output bytes.
+/// and Polygon EWKB hex or bytes-like input is patched at the top-level header
+/// without scanning the geometry body. Malformed coordinate bodies or trailing
+/// bytes in those simple fast paths can pass through as invalid output bytes.
 #[pyfunction]
-#[pyo3(signature = (text, srid=None))]
-fn to_wkb(text: &str, srid: Option<Bound<'_, PyAny>>) -> PyResult<Vec<u8>> {
-    core::to_wkb(text, parse_srid_arg(srid)?).map_err(to_py_err)
+#[pyo3(signature = (input, srid=None))]
+fn to_wkb(input: Bound<'_, PyAny>, srid: Option<Bound<'_, PyAny>>) -> PyResult<Vec<u8>> {
+    let srid = parse_srid_arg(srid)?;
+    if let Ok(text) = input.cast::<PyString>() {
+        return core::to_wkb(core::Input::Text(text.to_str()?), srid).map_err(to_py_err);
+    }
+    with_wkb_buffer(&input, "input", |wkb| {
+        core::to_wkb(core::Input::Wkb(wkb), srid).map_err(to_py_err)
+    })
 }
 
-/// Converts a WKT/EWKT string or a hex-encoded WKB/EWKB string to a WKT string.
-/// The input format is detected automatically: non-empty, even-length all-hex
-/// text is treated as hex WKB; anything else is treated as WKT.
+/// Converts a WKT/EWKT string, a hex-encoded WKB/EWKB string, or bytes-like
+/// WKB/EWKB input to a WKT string.
+/// The string input format is detected automatically: non-empty, even-length
+/// all-hex text is treated as hex WKB; anything else is treated as WKT.
+/// Bytes-like input is always treated as raw WKB/EWKB.
 ///
 /// *srid* controls SRID handling in the output:
 /// - ``None`` (default): mirror the input — ``SRID=N;`` prefix kept if present, absent if not.
@@ -196,13 +227,28 @@ fn to_wkb(text: &str, srid: Option<Bound<'_, PyAny>>) -> PyResult<Vec<u8>> {
 /// WKB.  When ``False``, only the SRID prefix is adjusted — **no validation is
 /// performed and malformed WKT is returned without raising an error.**
 /// Leading/trailing whitespace is always stripped regardless of this flag.
-/// Hex WKB input is always decoded to normalised WKT regardless of this flag.
+/// Hex WKB and bytes-like WKB input are always decoded to normalised WKT
+/// regardless of this flag.
 /// Odd-length all-hex input is not hex WKB; with ``normalize_wkt=False`` it
 /// follows the same unvalidated WKT fast path.
+/// For performance, bytes-like inputs may be borrowed directly without
+/// copying; mutating a writable buffer during conversion is unsupported and may
+/// produce invalid or inconsistent results.
 #[pyfunction]
-#[pyo3(signature = (text, srid=None, normalize_wkt=false))]
-fn to_wkt(text: &str, srid: Option<Bound<'_, PyAny>>, normalize_wkt: bool) -> PyResult<String> {
-    core::to_wkt(text, parse_srid_arg(srid)?, normalize_wkt).map_err(to_py_err)
+#[pyo3(signature = (input, srid=None, normalize_wkt=false))]
+fn to_wkt(
+    input: Bound<'_, PyAny>,
+    srid: Option<Bound<'_, PyAny>>,
+    normalize_wkt: bool,
+) -> PyResult<String> {
+    let srid = parse_srid_arg(srid)?;
+    if let Ok(text) = input.cast::<PyString>() {
+        return core::to_wkt(core::Input::Text(text.to_str()?), srid, normalize_wkt)
+            .map_err(to_py_err);
+    }
+    with_wkb_buffer(&input, "input", |wkb| {
+        core::to_wkt(core::Input::Wkb(wkb), srid, normalize_wkt).map_err(to_py_err)
+    })
 }
 
 #[pymodule(name = "wkb_wkt_converter")]

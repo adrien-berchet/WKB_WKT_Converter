@@ -98,24 +98,49 @@ pub enum SridMode {
     Set(u32),
 }
 
+/// Explicit input selector for generic converters.
+///
+/// [`Input::Text`] preserves the existing generic converter behavior: WKT/EWKT
+/// text is parsed as text, while non-empty even-length all-hex text is treated
+/// as hex-encoded WKB/EWKB.
+///
+/// [`Input::Wkb`] is always treated as raw WKB/EWKB bytes. The bytes are never
+/// interpreted as hex text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Input<'a> {
+    /// WKT/EWKT text, or hex-encoded WKB/EWKB text.
+    Text(&'a str),
+    /// Raw WKB/EWKB bytes.
+    Wkb(&'a [u8]),
+}
+
 /// Converts any WKT/EWKT string or hex-encoded WKB/EWKB string to WKB bytes.
 ///
 /// The input format is detected automatically: a non-empty string with even
 /// length composed entirely of hexadecimal characters is treated as hex WKB;
 /// anything else (including odd-length all-hex strings) is treated as WKT.
+/// Raw [`Input::Wkb`] bytes are always treated as WKB/EWKB, never as hex text.
 ///
 /// `srid` controls SRID handling in the output:
 /// - [`SridMode::Auto`] (default): mirror the input — SRID kept if present, absent if not.
-///   When the input is hex WKB, the bytes are returned as-is without WKB structure validation.
+///   When the input is hex WKB text or raw WKB bytes, the bytes are returned
+///   as-is without WKB structure validation.
 /// - [`SridMode::Strip`]: always strip the SRID from the output.
 /// - [`SridMode::Set(n)`]: always embed SRID `n`, overriding any SRID in the input.
 ///
 /// **Note on validation:** for canonical little-endian Point, LineString, and
-/// Polygon EWKB hex input under `Strip` and `Set`, the fast path rewrites only
-/// the top-level EWKB header. Big-endian, ISO-dimensional, collection, or
-/// non-canonical type headers fall back to a full parse round-trip which
-/// normalises the geometry body.
-pub fn to_wkb(text: &str, srid: SridMode) -> Result<Vec<u8>> {
+/// Polygon EWKB hex text or raw WKB input under `Strip` and `Set`, the fast
+/// path rewrites only the top-level EWKB header. Big-endian, ISO-dimensional,
+/// collection, or non-canonical type headers fall back to a full parse
+/// round-trip which normalises the geometry body.
+pub fn to_wkb(input: Input<'_>, srid: SridMode) -> Result<Vec<u8>> {
+    match input {
+        Input::Text(text) => to_wkb_text(text, srid),
+        Input::Wkb(wkb) => to_wkb_bytes(wkb, srid),
+    }
+}
+
+fn to_wkb_text(text: &str, srid: SridMode) -> Result<Vec<u8>> {
     let trimmed = text.trim();
     match srid {
         SridMode::Auto => {
@@ -127,28 +152,14 @@ pub fn to_wkb(text: &str, srid: SridMode) -> Result<Vec<u8>> {
         }
         SridMode::Strip => {
             if let Some(bytes) = try_decode_hex(trimmed) {
-                match try_strip_srid_from_le_wkb(&bytes) {
-                    Some(Cow::Borrowed(_)) => Ok(bytes), // no SRID — decoded bytes are already correct
-                    Some(Cow::Owned(out)) => Ok(out),
-                    None => {
-                        let (wkt, _) = wkb_to_wkt_split_srid(&bytes)?;
-                        wkt_to_wkb::convert(&wkt)
-                    }
-                }
+                to_wkb_owned_bytes(bytes, srid)
             } else {
                 wkt_to_wkb_split_srid(trimmed).map(|(b, _)| b)
             }
         }
         SridMode::Set(srid_val) => {
             if let Some(bytes) = try_decode_hex(trimmed) {
-                match try_set_srid_in_le_wkb(&bytes, srid_val) {
-                    Some(Cow::Borrowed(_)) => Ok(bytes), // SRID already correct
-                    Some(Cow::Owned(out)) => Ok(out),
-                    None => {
-                        let (wkt, _) = wkb_to_wkt_split_srid(&bytes)?;
-                        wkt_to_wkb::convert_with_forced_srid(&wkt, srid_val)
-                    }
-                }
+                to_wkb_owned_bytes(bytes, srid)
             } else {
                 wkt_to_wkb::convert_with_forced_srid(trimmed, srid_val)
             }
@@ -156,12 +167,46 @@ pub fn to_wkb(text: &str, srid: SridMode) -> Result<Vec<u8>> {
     }
 }
 
-/// Converts any WKT/EWKT string or hex-encoded WKB/EWKB string to a WKT
+fn to_wkb_owned_bytes(wkb: Vec<u8>, srid: SridMode) -> Result<Vec<u8>> {
+    match apply_srid_to_wkb(&wkb, srid)? {
+        Cow::Borrowed(_) => Ok(wkb),
+        Cow::Owned(out) => Ok(out),
+    }
+}
+
+fn to_wkb_bytes(wkb: &[u8], srid: SridMode) -> Result<Vec<u8>> {
+    Ok(apply_srid_to_wkb(wkb, srid)?.into_owned())
+}
+
+fn apply_srid_to_wkb(wkb: &[u8], srid: SridMode) -> Result<Cow<'_, [u8]>> {
+    match srid {
+        SridMode::Auto => Ok(Cow::Borrowed(wkb)),
+        SridMode::Strip => match try_strip_srid_from_le_wkb(wkb) {
+            Some(Cow::Borrowed(_)) => Ok(Cow::Borrowed(wkb)),
+            Some(Cow::Owned(out)) => Ok(Cow::Owned(out)),
+            None => {
+                let (wkt, _) = wkb_to_wkt_split_srid(wkb)?;
+                wkt_to_wkb::convert(&wkt).map(Cow::Owned)
+            }
+        },
+        SridMode::Set(srid_val) => match try_set_srid_in_le_wkb(wkb, srid_val) {
+            Some(Cow::Borrowed(_)) => Ok(Cow::Borrowed(wkb)),
+            Some(Cow::Owned(out)) => Ok(Cow::Owned(out)),
+            None => {
+                let (wkt, _) = wkb_to_wkt_split_srid(wkb)?;
+                wkt_to_wkb::convert_with_forced_srid(&wkt, srid_val).map(Cow::Owned)
+            }
+        },
+    }
+}
+
+/// Converts any WKT/EWKT string, hex-encoded WKB/EWKB string, or raw WKB bytes to a WKT
 /// string.
 ///
 /// The input format is detected automatically: a non-empty string with even
 /// length composed entirely of hexadecimal characters is treated as hex WKB;
 /// anything else (including odd-length all-hex strings) is treated as WKT.
+/// Raw [`Input::Wkb`] bytes are always treated as WKB/EWKB, never as hex text.
 ///
 /// `srid` controls SRID handling in the output:
 /// - [`SridMode::Auto`] (default): mirror the input — `SRID=N;` prefix kept if present.
@@ -175,8 +220,15 @@ pub fn to_wkb(text: &str, srid: SridMode) -> Result<Vec<u8>> {
 /// malformed WKT is returned without error.**  Note that leading/trailing
 /// whitespace is always trimmed regardless of this flag.  An empty input string
 /// always returns an error regardless of this flag.  Has no effect when the
-/// input is hex WKB, which is always decoded to normalised WKT.
-pub fn to_wkt(text: &str, srid: SridMode, normalize_wkt: bool) -> Result<String> {
+/// input is hex WKB or raw WKB, which is always decoded to normalised WKT.
+pub fn to_wkt(input: Input<'_>, srid: SridMode, normalize_wkt: bool) -> Result<String> {
+    match input {
+        Input::Text(text) => to_wkt_text(text, srid, normalize_wkt),
+        Input::Wkb(wkb) => wkb_to_wkt(wkb, srid),
+    }
+}
+
+fn to_wkt_text(text: &str, srid: SridMode, normalize_wkt: bool) -> Result<String> {
     let trimmed = text.trim();
     if trimmed.is_empty() {
         return Err(Error::InvalidWkt("empty input".into()));
@@ -248,16 +300,25 @@ pub fn to_wkt(text: &str, srid: SridMode, normalize_wkt: bool) -> Result<String>
     }
 }
 
-/// Converts any WKT/EWKT string or hex-encoded WKB/EWKB string to an uppercase
+/// Converts any WKT/EWKT string, hex-encoded WKB/EWKB string, or raw WKB bytes to an uppercase
 /// hex-encoded EWKB string.
 ///
-/// The input format is detected automatically.
+/// The text input format is detected automatically. Raw [`Input::Wkb`] bytes
+/// are always treated as WKB/EWKB, never as hex text.
 ///
 /// `srid` controls SRID handling in the output — see [`SridMode`].
 ///
-/// **Note:** hex input under [`SridMode::Auto`] is validated as hex text and
-/// uppercased without WKB structure validation.
-pub fn to_hex_wkb(text: &str, srid: SridMode) -> Result<String> {
+/// **Note:** hex text input under [`SridMode::Auto`] is validated as hex text
+/// and uppercased without WKB structure validation. Raw WKB input under
+/// [`SridMode::Auto`] is hex-encoded without WKB structure validation.
+pub fn to_hex_wkb(input: Input<'_>, srid: SridMode) -> Result<String> {
+    match input {
+        Input::Text(text) => to_hex_wkb_text(text, srid),
+        Input::Wkb(wkb) => to_hex_wkb_bytes(wkb, srid),
+    }
+}
+
+fn to_hex_wkb_text(text: &str, srid: SridMode) -> Result<String> {
     let trimmed = text.trim();
     if srid == SridMode::Auto {
         if let Some(hex) = try_normalize_hex_uppercase(trimmed) {
@@ -268,26 +329,12 @@ pub fn to_hex_wkb(text: &str, srid: SridMode) -> Result<String> {
         SridMode::Auto => {}
         SridMode::Strip => {
             if let Some(bytes) = try_decode_hex(trimmed) {
-                return match try_strip_srid_from_le_wkb(&bytes) {
-                    Some(Cow::Borrowed(_)) => Ok(encode_hex(&bytes)),
-                    Some(Cow::Owned(out)) => Ok(encode_hex(&out)),
-                    None => {
-                        let (wkt, _) = wkb_to_wkt_split_srid(&bytes)?;
-                        wkt_to_wkb::convert_to_hex_split_srid(&wkt)
-                    }
-                };
+                return to_hex_wkb_bytes(&bytes, srid);
             }
         }
-        SridMode::Set(srid_val) => {
+        SridMode::Set(_) => {
             if let Some(bytes) = try_decode_hex(trimmed) {
-                return match try_set_srid_in_le_wkb(&bytes, srid_val) {
-                    Some(Cow::Borrowed(_)) => Ok(encode_hex(&bytes)),
-                    Some(Cow::Owned(out)) => Ok(encode_hex(&out)),
-                    None => {
-                        let (wkt, _) = wkb_to_wkt_split_srid(&bytes)?;
-                        wkt_to_wkb::convert_to_hex_with_forced_srid(&wkt, srid_val)
-                    }
-                };
+                return to_hex_wkb_bytes(&bytes, srid);
             }
         }
     }
@@ -295,6 +342,28 @@ pub fn to_hex_wkb(text: &str, srid: SridMode) -> Result<String> {
         SridMode::Auto => wkt_to_wkb::convert_to_hex(trimmed),
         SridMode::Strip => wkt_to_wkb::convert_to_hex_split_srid(trimmed),
         SridMode::Set(srid_val) => wkt_to_wkb::convert_to_hex_with_forced_srid(trimmed, srid_val),
+    }
+}
+
+fn to_hex_wkb_bytes(wkb: &[u8], srid: SridMode) -> Result<String> {
+    match srid {
+        SridMode::Auto => Ok(encode_hex(wkb)),
+        SridMode::Strip => match try_strip_srid_from_le_wkb(wkb) {
+            Some(Cow::Borrowed(_)) => Ok(encode_hex(wkb)),
+            Some(Cow::Owned(out)) => Ok(encode_hex(&out)),
+            None => {
+                let (wkt, _) = wkb_to_wkt_split_srid(wkb)?;
+                wkt_to_wkb::convert_to_hex_split_srid(&wkt)
+            }
+        },
+        SridMode::Set(srid_val) => match try_set_srid_in_le_wkb(wkb, srid_val) {
+            Some(Cow::Borrowed(_)) => Ok(encode_hex(wkb)),
+            Some(Cow::Owned(out)) => Ok(encode_hex(&out)),
+            None => {
+                let (wkt, _) = wkb_to_wkt_split_srid(wkb)?;
+                wkt_to_wkb::convert_to_hex_with_forced_srid(&wkt, srid_val)
+            }
+        },
     }
 }
 

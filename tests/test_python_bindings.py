@@ -453,6 +453,26 @@ def test_to_wkb_from_hex_wkb_returns_bytes():
     assert result == m.wkt_to_wkb("POINT (1 2)")
 
 
+@pytest.mark.parametrize("make_input", [
+    pytest.param(bytes, id="bytes"),
+    pytest.param(bytearray, id="bytearray"),
+    pytest.param(memoryview, id="memoryview"),
+    pytest.param(lambda wkb: memoryview(b"\x00" + wkb)[1:], id="sliced-memoryview"),
+    pytest.param(lambda wkb: array("B", wkb), id="unsigned-byte-array"),
+])
+def test_to_wkb_from_bytes_like_wkb_returns_bytes(make_input):
+    wkb = m.wkt_to_wkb("POINT (1 2)")
+    result = m.to_wkb(make_input(wkb))
+    assert isinstance(result, bytes)
+    assert result == wkb
+
+
+def test_to_wkb_from_bytes_like_wkb_preserves_srid():
+    wkb = m.wkt_to_wkb("SRID=4326;POINT (1 2)")
+    result = m.to_wkb(bytearray(wkb))
+    assert m.wkb_to_wkt(result) == "SRID=4326;POINT (1 2)"
+
+
 def test_to_wkb_preserves_srid_from_wkt():
     result = m.to_wkb("SRID=4326;POINT (1 2)")
     assert m.wkb_to_wkt(result) == "SRID=4326;POINT (1 2)"
@@ -510,6 +530,12 @@ def test_to_wkb_srid_false_strips_srid_from_hex_wkb():
     assert m.wkb_to_wkt(result) == "POINT (1 2)"
 
 
+def test_to_wkb_srid_false_strips_srid_from_bytes_like_wkb():
+    wkb = m.wkt_to_wkb("SRID=4326;POINT (1 2)")
+    result = m.to_wkb(memoryview(wkb), srid=False)
+    assert m.wkb_to_wkt(result) == "POINT (1 2)"
+
+
 def test_to_wkb_srid_false_no_srid_unchanged():
     assert m.wkb_to_wkt(m.to_wkb("POINT (1 2)", srid=False)) == "POINT (1 2)"
 
@@ -530,10 +556,39 @@ def test_to_wkb_srid_int_adds_srid_to_plain_hex_wkb():
     assert m.wkb_to_wkt(result) == "SRID=4326;POINT (1 2)"
 
 
+def test_to_wkb_srid_int_adds_srid_to_bytes_like_wkb():
+    wkb = m.wkt_to_wkb("POINT (1 2)")
+    result = m.to_wkb(bytearray(wkb), srid=4326)
+    assert m.wkb_to_wkt(result) == "SRID=4326;POINT (1 2)"
+
+
 def test_to_wkb_srid_int_overrides_srid_in_hex_ewkb():
     hex_wkb = m.wkt_to_hex_wkb("SRID=4326;POINT (1 2)")
     result = m.to_wkb(hex_wkb, srid=3857)
     assert m.wkb_to_wkt(result) == "SRID=3857;POINT (1 2)"
+
+
+def test_to_wkb_srid_none_does_not_validate_bytes_like_wkb():
+    assert m.to_wkb(b"\x99") == b"\x99"
+
+
+def test_to_wkb_bytes_like_ascii_hex_is_raw_wkb_not_hex_text():
+    hex_wkb = m.wkt_to_hex_wkb("POINT (1 2)")
+    assert m.to_wkb(hex_wkb.encode("ascii")) == hex_wkb.encode("ascii")
+
+
+def test_to_wkb_accepts_input_keyword():
+    assert m.to_wkb(input="POINT (1 2)") == m.wkt_to_wkb("POINT (1 2)")
+
+
+def test_to_wkb_rejects_non_buffer_non_str_input():
+    with pytest.raises(BufferError, match="contiguous one-byte buffer"):
+        m.to_wkb(123)
+
+
+def test_to_wkb_rejects_non_byte_buffer():
+    with pytest.raises(BufferError, match="contiguous one-byte buffer"):
+        m.to_wkb(array("H", [1, 2, 3]))
 
 
 def test_to_wkb_srid_true_raises_value_error():
@@ -561,6 +616,20 @@ def test_to_wkt_from_hex_wkb_returns_str():
     assert result == "POINT (1 2)"
 
 
+@pytest.mark.parametrize("make_input", [
+    pytest.param(bytes, id="bytes"),
+    pytest.param(bytearray, id="bytearray"),
+    pytest.param(memoryview, id="memoryview"),
+    pytest.param(lambda wkb: memoryview(b"\x00" + wkb)[1:], id="sliced-memoryview"),
+    pytest.param(lambda wkb: array("B", wkb), id="unsigned-byte-array"),
+])
+def test_to_wkt_from_bytes_like_wkb_returns_str(make_input):
+    wkb = m.wkt_to_wkb("POINT (1 2)")
+    result = m.to_wkt(make_input(wkb))
+    assert isinstance(result, str)
+    assert result == "POINT (1 2)"
+
+
 def test_to_wkt_normalises_wkt():
     # WKT with non-canonical whitespace/casing is normalised when normalize_wkt=True
     assert m.to_wkt("point(1 2)", normalize_wkt=True) == "POINT (1 2)"
@@ -573,6 +642,11 @@ def test_to_wkt_preserves_srid_from_wkt():
 def test_to_wkt_preserves_srid_from_hex_wkb():
     hex_wkb = m.wkt_to_hex_wkb("SRID=4326;POINT (1 2)")
     assert m.to_wkt(hex_wkb) == "SRID=4326;POINT (1 2)"
+
+
+def test_to_wkt_preserves_srid_from_bytes_like_wkb():
+    wkb = m.wkt_to_wkb("SRID=4326;POINT (1 2)")
+    assert m.to_wkt(bytearray(wkb)) == "SRID=4326;POINT (1 2)"
 
 
 @pytest.mark.parametrize("wkt", [
@@ -641,6 +715,11 @@ def test_to_wkt_srid_false_strips_srid_from_hex_wkb():
     assert m.to_wkt(hex_wkb, srid=False) == "POINT (1 2)"
 
 
+def test_to_wkt_srid_false_strips_srid_from_bytes_like_wkb():
+    wkb = m.wkt_to_wkb("SRID=4326;POINT (1 2)")
+    assert m.to_wkt(memoryview(wkb), srid=False) == "POINT (1 2)"
+
+
 def test_to_wkt_srid_false_normalises_wkt():
     assert m.to_wkt("point(1 2)", srid=False, normalize_wkt=True) == "POINT (1 2)"
 
@@ -662,9 +741,47 @@ def test_to_wkt_srid_int_adds_srid_to_plain_hex_wkb():
     assert m.to_wkt(hex_wkb, srid=4326) == "SRID=4326;POINT (1 2)"
 
 
+def test_to_wkt_srid_int_adds_srid_to_bytes_like_wkb():
+    wkb = m.wkt_to_wkb("POINT (1 2)")
+    assert m.to_wkt(bytearray(wkb), srid=4326) == "SRID=4326;POINT (1 2)"
+
+
 def test_to_wkt_srid_int_overrides_srid_in_hex_ewkb():
     hex_wkb = m.wkt_to_hex_wkb("SRID=4326;POINT (1 2)")
     assert m.to_wkt(hex_wkb, srid=3857) == "SRID=3857;POINT (1 2)"
+
+
+def test_to_wkt_normalize_wkt_false_bytes_like_wkb_still_normalises():
+    wkb = m.wkt_to_wkb("POINT (1 2)")
+    assert m.to_wkt(wkb, normalize_wkt=False) == "POINT (1 2)"
+
+
+def test_to_wkt_bytes_like_wkb_invalid_raises_value_error():
+    with pytest.raises(ValueError, match="invalid WKB"):
+        m.to_wkt(b"\x99")
+
+
+def test_to_wkt_bytes_like_ascii_hex_is_raw_wkb_not_hex_text():
+    hex_wkb = m.wkt_to_hex_wkb("POINT (1 2)")
+    with pytest.raises(ValueError, match="invalid WKB"):
+        m.to_wkt(hex_wkb.encode("ascii"))
+
+
+def test_to_wkt_bytes_like_wkb_rejects_non_contiguous_memoryview():
+    wkb = m.wkt_to_wkb("POINT (1 2)")
+    with pytest.raises(BufferError, match="contiguous one-byte buffer"):
+        m.to_wkt(memoryview(wkb)[::2])
+
+
+def test_to_wkt_preserves_buffer_acquisition_errors():
+    view = memoryview(bytearray(b"\x99"))
+    view.release()
+    with pytest.raises(ValueError, match="released memoryview"):
+        m.to_wkt(view)
+
+
+def test_to_wkt_accepts_input_keyword():
+    assert m.to_wkt(input="POINT (1 2)") == "POINT (1 2)"
 
 
 def test_to_wkt_srid_true_raises_value_error():
@@ -729,6 +846,18 @@ def test_to_hex_wkb_from_hex_wkb_is_identity():
     assert m.to_hex_wkb(original) == original
 
 
+@pytest.mark.parametrize("make_input", [
+    pytest.param(bytes, id="bytes"),
+    pytest.param(bytearray, id="bytearray"),
+    pytest.param(memoryview, id="memoryview"),
+    pytest.param(lambda wkb: memoryview(b"\x00" + wkb)[1:], id="sliced-memoryview"),
+    pytest.param(lambda wkb: array("B", wkb), id="unsigned-byte-array"),
+])
+def test_to_hex_wkb_from_bytes_like_wkb_returns_uppercase_hex(make_input):
+    wkb = m.wkt_to_wkb("POINT (1 2)")
+    assert m.to_hex_wkb(make_input(wkb)) == m.wkt_to_hex_wkb("POINT (1 2)")
+
+
 def test_to_hex_wkb_srid_none_is_default():
     ewkt = "SRID=4326;POINT (1 2)"
     assert m.to_hex_wkb(ewkt) == m.to_hex_wkb(ewkt, srid=None)
@@ -744,14 +873,44 @@ def test_to_hex_wkb_srid_false_strips_srid():
     assert m.hex_wkb_to_wkt(result) == "POINT (1 2)"
 
 
+def test_to_hex_wkb_srid_false_strips_srid_from_bytes_like_wkb():
+    wkb = m.wkt_to_wkb("SRID=4326;POINT (1 2)")
+    result = m.to_hex_wkb(memoryview(wkb), srid=False)
+    assert m.hex_wkb_to_wkt(result) == "POINT (1 2)"
+
+
 def test_to_hex_wkb_srid_int_adds_srid_to_plain_wkt():
     result = m.to_hex_wkb("POINT (1 2)", srid=4326)
+    assert m.hex_wkb_to_wkt(result) == "SRID=4326;POINT (1 2)"
+
+
+def test_to_hex_wkb_srid_int_adds_srid_to_bytes_like_wkb():
+    wkb = m.wkt_to_wkb("POINT (1 2)")
+    result = m.to_hex_wkb(bytearray(wkb), srid=4326)
     assert m.hex_wkb_to_wkt(result) == "SRID=4326;POINT (1 2)"
 
 
 def test_to_hex_wkb_srid_int_overrides_srid():
     result = m.to_hex_wkb("SRID=4326;POINT (1 2)", srid=3857)
     assert m.hex_wkb_to_wkt(result) == "SRID=3857;POINT (1 2)"
+
+
+def test_to_hex_wkb_srid_none_does_not_validate_bytes_like_wkb():
+    assert m.to_hex_wkb(b"\x99") == "99"
+
+
+def test_to_hex_wkb_bytes_like_ascii_hex_is_raw_wkb_not_hex_text():
+    hex_wkb = m.wkt_to_hex_wkb("POINT (1 2)")
+    assert m.to_hex_wkb(hex_wkb.encode("ascii")) == hex_wkb.encode("ascii").hex().upper()
+
+
+def test_to_hex_wkb_accepts_input_keyword():
+    assert m.to_hex_wkb(input="POINT (1 2)") == m.wkt_to_hex_wkb("POINT (1 2)")
+
+
+def test_to_hex_wkb_rejects_non_buffer_non_str_input():
+    with pytest.raises(BufferError, match="contiguous one-byte buffer"):
+        m.to_hex_wkb(123)
 
 
 def test_to_hex_wkb_srid_true_raises_value_error():

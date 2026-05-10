@@ -146,6 +146,12 @@ class PythonApiSuite:
     def time_to_wkb_from_hex(self, geometry):
         self.conv.to_wkb(self.hex_wkb)
 
+    def time_to_wkb_from_wkb(self, geometry):
+        self.conv.to_wkb(self.wkb)
+
+    def time_to_wkb_from_wkb_set_srid(self, geometry):
+        self.conv.to_wkb(self.wkb, srid=4326)
+
     def time_to_wkt_from_wkt_no_normalize(self, geometry):
         self.conv.to_wkt(self.wkt)
 
@@ -155,8 +161,14 @@ class PythonApiSuite:
     def time_to_wkt_from_hex(self, geometry):
         self.conv.to_wkt(self.hex_wkb)
 
+    def time_to_wkt_from_wkb(self, geometry):
+        self.conv.to_wkt(self.wkb)
+
     def time_to_hex_wkb_from_wkt(self, geometry):
         self.conv.to_hex_wkb(self.wkt)
 
     def time_to_hex_wkb_from_hex(self, geometry):
         self.conv.to_hex_wkb(self.hex_wkb)
+
+    def time_to_hex_wkb_from_wkb(self, geometry):
+        self.conv.to_hex_wkb(self.wkb)
