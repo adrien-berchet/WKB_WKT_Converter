@@ -79,7 +79,7 @@ tests/                  Python tests (pytest)
 
 ### Core library (`wkb_wkt_converter/src/`)
 
-**`lib.rs`** — public API surface: six free functions (`wkb_to_wkt`, `wkb_to_wkt_split_srid`, `wkt_to_wkb`, `wkt_to_wkb_split_srid`, `wkt_to_hex_wkb`, `hex_wkb_to_wkt`). The `_split_srid` variants return the SRID separately rather than embedding it in the output.
+**`lib.rs`** — public API surface: direct conversion functions (`wkb_to_wkt`, `wkb_to_wkt_split_srid`, `wkt_to_wkb`, `wkt_to_wkb_split_srid`, `wkt_to_hex_wkb`, `hex_wkb_to_wkt`) plus generic input-detecting converters (`to_wkb`, `to_wkt`, `to_hex_wkb`). The `_split_srid` variants return the SRID separately rather than embedding it in the output.
 
 **`types.rs`** — `GeomType` (7 OGC types), `Dimension` (XY/XYZ/XYM/XYZM), and the EWKB flag-bit constants (`EWKB_Z`, `EWKB_M`, `EWKB_SRID`).
 

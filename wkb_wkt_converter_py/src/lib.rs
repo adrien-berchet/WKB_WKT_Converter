@@ -1,9 +1,10 @@
 // PyO3's #[pyfunction] macro expansion triggers this lint as a false positive.
 #![allow(clippy::useless_conversion)]
 
-use pyo3::exceptions::PyValueError;
+use pyo3::buffer::PyUntypedBuffer;
+use pyo3::exceptions::{PyBufferError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::PyBool;
+use pyo3::types::{PyBool, PyBytes, PyBytesMethods};
 use wkb_wkt_converter as core;
 
 fn to_py_err(e: core::Error) -> PyErr {
@@ -35,7 +36,50 @@ fn parse_srid_arg(val: Option<Bound<'_, PyAny>>) -> PyResult<core::SridMode> {
     }
 }
 
-/// Converts WKB/EWKB bytes to a WKT/EWKT string.
+fn with_wkb_buffer<R>(wkb: &Bound<'_, PyAny>, f: impl FnOnce(&[u8]) -> PyResult<R>) -> PyResult<R> {
+    if let Ok(bytes) = wkb.cast::<PyBytes>() {
+        return f(bytes.as_bytes());
+    }
+
+    let buffer = match PyUntypedBuffer::get(wkb) {
+        Ok(buffer) => buffer,
+        Err(err) if err.is_instance_of::<PyTypeError>(wkb.py()) => {
+            return Err(PyBufferError::new_err(
+                "wkb must be a contiguous one-byte buffer",
+            ));
+        }
+        Err(err) => return Err(err),
+    };
+    if buffer.item_size() != 1 || !buffer.is_c_contiguous() {
+        return Err(PyBufferError::new_err(
+            "wkb must be a contiguous one-byte buffer",
+        ));
+    }
+
+    let len = buffer.len_bytes();
+    let borrowed: &[u8] = if len == 0 {
+        &[]
+    } else {
+        // SAFETY: `PyUntypedBuffer::get` keeps the exporter alive for the
+        // lifetime of `buffer`, and the checks above guarantee a C-contiguous
+        // memory region containing exactly `len` one-byte elements. The slice
+        // is borrowed only for the callback below, while `buffer` remains in
+        // scope. Callers keep Python argument extraction outside this borrowed
+        // window, and the callback must not re-enter Python or release the GIL.
+        // For performance, writable exporters are borrowed too; the public API
+        // documents that mutating the buffer during conversion is unsupported.
+        unsafe { std::slice::from_raw_parts(buffer.buf_ptr().cast::<u8>(), len) }
+    };
+    f(borrowed)
+}
+
+/// Converts WKB/EWKB bytes-like input to a WKT/EWKT string.
+///
+/// ``wkb`` may be ``bytes``, ``bytearray``, ``memoryview``, or another
+/// C-contiguous one-byte buffer object. It is always treated as raw WKB/EWKB.
+/// For performance, bytes-like inputs may be borrowed directly without
+/// copying; mutating a writable buffer during conversion is unsupported and may
+/// produce invalid or inconsistent results.
 ///
 /// *srid* controls SRID handling in the output:
 /// - ``None`` (default): mirror the input — ``SRID=N;`` prefix kept if present, absent if not.
@@ -43,15 +87,22 @@ fn parse_srid_arg(val: Option<Bound<'_, PyAny>>) -> PyResult<core::SridMode> {
 /// - integer: always prepend ``SRID=N;``, overriding whatever the input contains.
 #[pyfunction]
 #[pyo3(signature = (wkb, srid=None))]
-fn wkb_to_wkt(wkb: &[u8], srid: Option<Bound<'_, PyAny>>) -> PyResult<String> {
-    core::wkb_to_wkt(wkb, parse_srid_arg(srid)?).map_err(to_py_err)
+fn wkb_to_wkt(wkb: Bound<'_, PyAny>, srid: Option<Bound<'_, PyAny>>) -> PyResult<String> {
+    let srid = parse_srid_arg(srid)?;
+    with_wkb_buffer(&wkb, |wkb| core::wkb_to_wkt(wkb, srid).map_err(to_py_err))
 }
 
-/// Converts WKB/EWKB bytes to a WKT string and returns the SRID separately.
+/// Converts WKB/EWKB bytes-like input to a WKT string and returns the SRID separately.
 /// The returned WKT string does not contain a `SRID=N;` prefix.
+///
+/// For performance, bytes-like inputs may be borrowed directly without
+/// copying; mutating a writable buffer during conversion is unsupported and may
+/// produce invalid or inconsistent results.
 #[pyfunction]
-fn wkb_to_wkt_split_srid(wkb: &[u8]) -> PyResult<(String, Option<u32>)> {
-    core::wkb_to_wkt_split_srid(wkb).map_err(to_py_err)
+fn wkb_to_wkt_split_srid(wkb: Bound<'_, PyAny>) -> PyResult<(String, Option<u32>)> {
+    with_wkb_buffer(&wkb, |wkb| {
+        core::wkb_to_wkt_split_srid(wkb).map_err(to_py_err)
+    })
 }
 
 /// Converts a WKT/EWKT string to EWKB bytes.
@@ -104,11 +155,11 @@ fn hex_wkb_to_wkt(hex: &str, srid: Option<Bound<'_, PyAny>>) -> PyResult<String>
 /// With ``srid=None``, hex input is validated as hex text and uppercased
 /// without WKB structure validation.
 ///
-/// *srid* controls SRID handling in the output — see ``text_to_wkb``.
+/// *srid* controls SRID handling in the output — see ``to_wkb``.
 #[pyfunction]
 #[pyo3(signature = (text, srid=None))]
-fn text_to_hex_wkb(text: &str, srid: Option<Bound<'_, PyAny>>) -> PyResult<String> {
-    core::text_to_hex_wkb(text, parse_srid_arg(srid)?).map_err(to_py_err)
+fn to_hex_wkb(text: &str, srid: Option<Bound<'_, PyAny>>) -> PyResult<String> {
+    core::to_hex_wkb(text, parse_srid_arg(srid)?).map_err(to_py_err)
 }
 
 /// Converts a WKT/EWKT string or a hex-encoded WKB/EWKB string to WKB bytes.
@@ -127,8 +178,8 @@ fn text_to_hex_wkb(text: &str, srid: Option<Bound<'_, PyAny>>) -> PyResult<Strin
 /// those simple fast paths can pass through as invalid output bytes.
 #[pyfunction]
 #[pyo3(signature = (text, srid=None))]
-fn text_to_wkb(text: &str, srid: Option<Bound<'_, PyAny>>) -> PyResult<Vec<u8>> {
-    core::text_to_wkb(text, parse_srid_arg(srid)?).map_err(to_py_err)
+fn to_wkb(text: &str, srid: Option<Bound<'_, PyAny>>) -> PyResult<Vec<u8>> {
+    core::to_wkb(text, parse_srid_arg(srid)?).map_err(to_py_err)
 }
 
 /// Converts a WKT/EWKT string or a hex-encoded WKB/EWKB string to a WKT string.
@@ -150,12 +201,8 @@ fn text_to_wkb(text: &str, srid: Option<Bound<'_, PyAny>>) -> PyResult<Vec<u8>> 
 /// follows the same unvalidated WKT fast path.
 #[pyfunction]
 #[pyo3(signature = (text, srid=None, normalize_wkt=false))]
-fn text_to_wkt(
-    text: &str,
-    srid: Option<Bound<'_, PyAny>>,
-    normalize_wkt: bool,
-) -> PyResult<String> {
-    core::text_to_wkt(text, parse_srid_arg(srid)?, normalize_wkt).map_err(to_py_err)
+fn to_wkt(text: &str, srid: Option<Bound<'_, PyAny>>, normalize_wkt: bool) -> PyResult<String> {
+    core::to_wkt(text, parse_srid_arg(srid)?, normalize_wkt).map_err(to_py_err)
 }
 
 #[pymodule(name = "wkb_wkt_converter")]
@@ -166,8 +213,8 @@ fn wkb_wkt_converter_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(wkt_to_wkb_split_srid, m)?)?;
     m.add_function(wrap_pyfunction!(wkt_to_hex_wkb, m)?)?;
     m.add_function(wrap_pyfunction!(hex_wkb_to_wkt, m)?)?;
-    m.add_function(wrap_pyfunction!(text_to_wkb, m)?)?;
-    m.add_function(wrap_pyfunction!(text_to_wkt, m)?)?;
-    m.add_function(wrap_pyfunction!(text_to_hex_wkb, m)?)?;
+    m.add_function(wrap_pyfunction!(to_wkb, m)?)?;
+    m.add_function(wrap_pyfunction!(to_wkt, m)?)?;
+    m.add_function(wrap_pyfunction!(to_hex_wkb, m)?)?;
     Ok(())
 }

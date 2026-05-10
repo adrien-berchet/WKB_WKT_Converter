@@ -33,3 +33,9 @@ test = ["hypothesis", "pytest", "shapely"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+    "ipython>=8.12.3",
+    "pdbpp>=0.12.1",
+]
