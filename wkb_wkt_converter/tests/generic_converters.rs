@@ -422,6 +422,22 @@ fn wkt_no_normalize_auto_preserves_srid_prefix() {
 }
 
 #[test]
+fn wkt_no_normalize_auto_strips_negative_srid_prefix() {
+    assert_eq!(
+        to_wkt("SRID=-1;POINT (1 2)", SridMode::Auto, false).unwrap(),
+        "POINT (1 2)"
+    );
+}
+
+#[test]
+fn wkt_no_normalize_auto_strips_zero_srid_prefix() {
+    assert_eq!(
+        to_wkt("SRID=0;POINT (1 2)", SridMode::Auto, false).unwrap(),
+        "POINT (1 2)"
+    );
+}
+
+#[test]
 fn wkt_no_normalize_strip_removes_srid_prefix() {
     assert_eq!(
         to_wkt("SRID=4326;POINT (1 2)", SridMode::Strip, false).unwrap(),

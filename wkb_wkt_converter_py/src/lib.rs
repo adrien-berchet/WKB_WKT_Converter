@@ -27,6 +27,11 @@ fn parse_srid_arg(val: Option<Bound<'_, PyAny>>) -> PyResult<core::SridMode> {
                 }
             } else if let Ok(n) = v.extract::<i32>() {
                 Ok(core::SridMode::Set(n))
+            } else if v.extract::<i64>().is_ok() {
+                Err(PyValueError::new_err(
+                    "srid is out of the allowed range: must fit in a 32-bit integer \
+                     (-2147483648 to 2147483647)",
+                ))
             } else {
                 Err(PyValueError::new_err(
                     "srid must be None, False, or an integer",

@@ -86,6 +86,11 @@ def test_wkt_to_wkb_srid_invalid_type_raises_value_error():
         m.wkt_to_wkb("POINT (1 2)", srid=3.14)
 
 
+def test_wkt_to_wkb_srid_out_of_range_raises_value_error():
+    with pytest.raises(ValueError, match="32-bit"):
+        m.wkt_to_wkb("POINT (1 2)", srid=2**40)
+
+
 def test_wkt_to_wkb_invalid_raises_value_error_with_srid_control():
     with pytest.raises(ValueError, match="invalid WKT"):
         m.wkt_to_wkb("NOT_A_GEOMETRY (1 2)", srid=False)

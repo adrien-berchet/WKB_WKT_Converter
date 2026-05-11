@@ -73,27 +73,22 @@ impl<'a> Tokenizer<'a> {
 
     fn read_srid_int(&mut self) -> Result<i32> {
         let bytes = self.input.as_bytes();
-        let negative = bytes.get(self.pos) == Some(&b'-');
-        if negative {
+        let start = self.pos;
+        if bytes.get(self.pos) == Some(&b'-') {
             self.pos += 1;
         }
-        let start = self.pos;
-        let mut end = start;
-        while bytes.get(end).is_some_and(u8::is_ascii_digit) {
-            end += 1;
+        let digits_start = self.pos;
+        while bytes.get(self.pos).is_some_and(u8::is_ascii_digit) {
+            self.pos += 1;
         }
-        if end == start {
+        if self.pos == digits_start {
             return Err(Error::InvalidWkt(format!(
-                "expected integer at position {}",
-                self.pos
+                "expected integer at position {digits_start}"
             )));
         }
-        let s = &self.input[start..end];
-        let v = s
-            .parse::<i32>()
-            .map_err(|_| Error::InvalidWkt(format!("integer out of i32 range: {s}")))?;
-        self.pos = end;
-        Ok(if negative { -v } else { v })
+        let s = &self.input[start..self.pos];
+        s.parse::<i32>()
+            .map_err(|_| Error::InvalidWkt(format!("integer out of i32 range: {s}")))
     }
 
     /// Reads the geometry type keyword and an optional dimension tag (Z / M / ZM).

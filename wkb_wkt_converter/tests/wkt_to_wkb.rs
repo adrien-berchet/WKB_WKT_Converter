@@ -151,6 +151,18 @@ fn wkt_to_wkb_split_srid_returns_none_for_unknown_srid() {
     assert_eq!(wkb_to_wkt(&wkb).unwrap(), "POINT (1 2)");
 }
 
+/// SRID=-2147483648 (i32::MIN) is now parseable and normalised to no-SRID.
+#[test]
+fn wkt_ewkt_i32_min_srid_strips_srid() {
+    let wkb = core_wkt_to_wkb("SRID=-2147483648;POINT (1 2)", SridMode::Auto).unwrap();
+    assert_eq!(wkb_to_wkt(&wkb).unwrap(), "POINT (1 2)");
+}
+
+#[test]
+fn wkt_ewkt_out_of_range_srid_errors() {
+    assert!(core_wkt_to_wkb("SRID=9999999999;POINT (1 2)", SridMode::Auto).is_err());
+}
+
 #[test]
 fn wkt_to_hex_wkb_auto_preserves_srid() {
     let hex = core_wkt_to_hex_wkb("SRID=4326;POINT (1 2)", SridMode::Auto).unwrap();

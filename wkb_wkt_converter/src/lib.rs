@@ -99,6 +99,8 @@ pub enum SridMode {
     /// Always strip any SRID from the output.
     Strip,
     /// Always embed this SRID in the output, overriding whatever the input contains.
+    /// Values ≤ 0 are treated as unknown per the PostGIS convention
+    /// (`SRID_IS_UNKNOWN(x) ((int)x<=0)`) and behave identically to [`SridMode::Strip`].
     Set(i32),
 }
 
@@ -267,7 +269,7 @@ fn to_wkt_text(text: &str, srid: SridMode, normalize_wkt: bool) -> Result<String
             .is_some_and(|b| !b.is_ascii_hexdigit())
     {
         return Ok(match srid {
-            SridMode::Auto => trimmed.to_owned(),
+            SridMode::Auto => strip_unknown_srid_prefix(trimmed).to_owned(),
             SridMode::Strip => strip_ewkt_prefix(trimmed).to_owned(),
             SridMode::Set(srid_val) => {
                 format!("SRID={srid_val};{}", strip_ewkt_prefix(trimmed))
@@ -384,6 +386,24 @@ fn to_hex_wkb_bytes(wkb: &[u8], srid: SridMode) -> Result<String> {
             }
         },
     }
+}
+
+/// Strips a `SRID=N;` prefix only when N ≤ 0 (PostGIS "unknown SRID").
+/// Returns the input unchanged if the prefix is absent or has a positive SRID.
+fn strip_unknown_srid_prefix(wkt: &str) -> &str {
+    if wkt
+        .get(..5)
+        .is_some_and(|p| p.eq_ignore_ascii_case("SRID="))
+    {
+        if let Some(rel) = wkt[5..].find(';') {
+            if let Ok(n) = wkt[5..5 + rel].trim().parse::<i32>() {
+                if n <= 0 {
+                    return wkt[6 + rel..].trim_start();
+                }
+            }
+        }
+    }
+    wkt
 }
 
 fn strip_ewkt_prefix(wkt: &str) -> &str {
