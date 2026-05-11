@@ -62,7 +62,7 @@ impl<'a> Tokenizer<'a> {
             let srid = self.read_srid_int()?;
             self.skip_whitespace();
             if self.consume_byte(b';') {
-                Ok(Some(srid))
+                Ok(if srid > 0 { Some(srid) } else { None })
             } else {
                 Err(Error::InvalidWkt("expected ';' after SRID value".into()))
             }

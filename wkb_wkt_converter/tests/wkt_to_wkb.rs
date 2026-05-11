@@ -122,28 +122,32 @@ fn wkt_to_wkb_set_overrides_srid() {
     assert_eq!(wkb_to_wkt(&wkb).unwrap(), "SRID=3857;POINT (1 2)");
 }
 
+/// SRID=0 is "unknown" per PostGIS convention; Set(0) behaves like Strip.
 #[test]
-fn wkt_to_wkb_set_zero_is_accepted() {
-    let wkb = core_wkt_to_wkb("POINT (1 2)", SridMode::Set(0)).unwrap();
-    assert_eq!(wkb_to_wkt(&wkb).unwrap(), "SRID=0;POINT (1 2)");
+fn wkt_to_wkb_set_zero_acts_as_strip() {
+    let wkb = core_wkt_to_wkb("SRID=4326;POINT (1 2)", SridMode::Set(0)).unwrap();
+    assert_eq!(wkb_to_wkt(&wkb).unwrap(), "POINT (1 2)");
 }
 
+/// Set(-1) ≤ 0 → treated as unknown; behaves like Strip.
 #[test]
-fn wkt_to_wkb_set_negative_one_srid() {
-    let wkb = core_wkt_to_wkb("POINT (1 2)", SridMode::Set(-1)).unwrap();
-    assert_eq!(wkb_to_wkt(&wkb).unwrap(), "SRID=-1;POINT (1 2)");
+fn wkt_to_wkb_set_negative_one_acts_as_strip() {
+    let wkb = core_wkt_to_wkb("SRID=4326;POINT (1 2)", SridMode::Set(-1)).unwrap();
+    assert_eq!(wkb_to_wkt(&wkb).unwrap(), "POINT (1 2)");
 }
 
+/// EWKT input with SRID=-1 (unknown) → WKB has no SRID embedded.
 #[test]
-fn wkt_ewkt_negative_srid_prefix_round_trips() {
+fn wkt_ewkt_negative_srid_prefix_strips_srid() {
     let wkb = core_wkt_to_wkb("SRID=-1;POINT (1 2)", SridMode::Auto).unwrap();
-    assert_eq!(wkb_to_wkt(&wkb).unwrap(), "SRID=-1;POINT (1 2)");
+    assert_eq!(wkb_to_wkt(&wkb).unwrap(), "POINT (1 2)");
 }
 
+/// split_srid treats SRID=-1 as absent.
 #[test]
-fn wkt_to_wkb_split_srid_returns_negative_srid() {
+fn wkt_to_wkb_split_srid_returns_none_for_unknown_srid() {
     let (wkb, srid) = wkt_to_wkb_split_srid("SRID=-1;POINT (1 2)").unwrap();
-    assert_eq!(srid, Some(-1));
+    assert_eq!(srid, None);
     assert_eq!(wkb_to_wkt(&wkb).unwrap(), "POINT (1 2)");
 }
 
@@ -192,12 +196,13 @@ fn wkt_to_hex_wkb_set_overrides_srid() {
     );
 }
 
+/// SRID=0 is "unknown" per PostGIS convention; Set(0) behaves like Strip.
 #[test]
-fn wkt_to_hex_wkb_set_zero_is_accepted() {
-    let hex = core_wkt_to_hex_wkb("POINT (1 2)", SridMode::Set(0)).unwrap();
+fn wkt_to_hex_wkb_set_zero_acts_as_strip() {
+    let hex = core_wkt_to_hex_wkb("SRID=4326;POINT (1 2)", SridMode::Set(0)).unwrap();
     assert_eq!(
         wkb_to_wkt(&hex::decode(hex).unwrap()).unwrap(),
-        "SRID=0;POINT (1 2)"
+        "POINT (1 2)"
     );
 }
 

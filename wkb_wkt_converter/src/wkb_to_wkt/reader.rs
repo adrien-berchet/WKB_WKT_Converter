@@ -133,7 +133,8 @@ impl<'a> WkbReader<'a> {
 
         let geom_type = GeomType::from_u32(geom_code)?;
         let srid = if has_srid {
-            Some(self.read_i32()?)
+            let raw = self.read_i32()?;
+            if raw > 0 { Some(raw) } else { None }
         } else {
             None
         };

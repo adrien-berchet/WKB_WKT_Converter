@@ -274,10 +274,44 @@ fn odd_length_hex_string_errors() {
     assert!(to_hex_wkb("ABC", SridMode::Auto).is_err());
 }
 
+/// SRID=0 is "unknown" per PostGIS convention; Set(0) behaves like Strip.
 #[test]
-fn srid_set_zero_is_accepted() {
-    let wkb = to_wkb("POINT (1 2)", SridMode::Set(0)).unwrap();
-    assert_eq!(wkb_to_wkt(&wkb).unwrap(), "SRID=0;POINT (1 2)");
+fn srid_set_zero_acts_as_strip() {
+    let wkb = to_wkb("SRID=4326;POINT (1 2)", SridMode::Set(0)).unwrap();
+    assert_eq!(wkb_to_wkt(&wkb).unwrap(), "POINT (1 2)");
+}
+
+// ── EWKT with negative/zero SRID prefix ─────────────────────────────────
+
+/// EWKT with SRID=0 prefix: tokenizer normalises to no-SRID, treated as plain WKT.
+#[test]
+fn ewkt_zero_srid_prefix_acts_as_plain_wkt_for_to_wkb() {
+    let wkb = to_wkb("SRID=0;POINT (1 2)", SridMode::Auto).unwrap();
+    assert_eq!(wkb_to_wkt(&wkb).unwrap(), "POINT (1 2)");
+}
+
+/// EWKT with SRID=-1 prefix: tokenizer normalises to no-SRID, treated as plain WKT.
+#[test]
+fn ewkt_negative_srid_prefix_acts_as_plain_wkt_for_to_wkb() {
+    let wkb = to_wkb("SRID=-1;POINT (1 2)", SridMode::Auto).unwrap();
+    assert_eq!(wkb_to_wkt(&wkb).unwrap(), "POINT (1 2)");
+}
+
+#[test]
+fn ewkt_negative_srid_prefix_acts_as_plain_wkt_for_to_wkt() {
+    assert_eq!(
+        to_wkt("SRID=-1;POINT (1 2)", SridMode::Auto, true).unwrap(),
+        "POINT (1 2)"
+    );
+}
+
+#[test]
+fn ewkt_negative_srid_prefix_acts_as_plain_wkt_for_to_hex_wkb() {
+    let h = to_hex_wkb("SRID=-1;POINT (1 2)", SridMode::Auto).unwrap();
+    assert_eq!(
+        wkb_to_wkt(&hex::decode(&h).unwrap()).unwrap(),
+        "POINT (1 2)"
+    );
 }
 
 // ── to_wkt: input detection and normalisation ───────────────────────────

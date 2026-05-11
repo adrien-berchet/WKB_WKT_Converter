@@ -18,6 +18,7 @@ pub use types::{Dimension, GeomType};
 /// - [`SridMode::Strip`]: always strip the `SRID=N;` prefix from the output.
 /// - [`SridMode::Set(n)`]: always prepend `SRID=n;`, overriding any SRID in the input.
 pub fn wkb_to_wkt(wkb: &[u8], srid: SridMode) -> Result<String> {
+    let srid = normalise_srid_mode(srid);
     match srid {
         SridMode::Auto => wkb_to_wkt::convert(wkb),
         SridMode::Strip => wkb_to_wkt_split_srid(wkb).map(|(wkt, _)| wkt),
@@ -41,6 +42,7 @@ pub fn wkb_to_wkt_split_srid(wkb: &[u8]) -> Result<(String, Option<i32>)> {
 /// - [`SridMode::Strip`]: always strip the SRID from the output.
 /// - [`SridMode::Set(n)`]: always embed SRID `n`, overriding any SRID in the input.
 pub fn wkt_to_wkb(wkt: &str, srid: SridMode) -> Result<Vec<u8>> {
+    let srid = normalise_srid_mode(srid);
     match srid {
         SridMode::Auto => wkt_to_wkb::convert(wkt),
         SridMode::Strip => wkt_to_wkb_split_srid(wkt).map(|(wkb, _)| wkb),
@@ -61,6 +63,7 @@ pub fn wkt_to_wkb_split_srid(wkt: &str) -> Result<(Vec<u8>, Option<i32>)> {
 /// - [`SridMode::Strip`]: always strip the SRID from the output.
 /// - [`SridMode::Set(n)`]: always embed SRID `n`, overriding any SRID in the input.
 pub fn wkt_to_hex_wkb(wkt: &str, srid: SridMode) -> Result<String> {
+    let srid = normalise_srid_mode(srid);
     match srid {
         SridMode::Auto => wkt_to_wkb::convert_to_hex(wkt),
         SridMode::Strip => wkt_to_wkb::convert_to_hex_split_srid(wkt),
@@ -76,6 +79,7 @@ pub fn wkt_to_hex_wkb(wkt: &str, srid: SridMode) -> Result<String> {
 /// - [`SridMode::Set(n)`]: always prepend `SRID=n;`, overriding any SRID in the input.
 pub fn hex_wkb_to_wkt(hex: &str, srid: SridMode) -> Result<String> {
     let bytes = decode_hex(hex)?;
+    let srid = normalise_srid_mode(srid);
     match srid {
         SridMode::Auto => wkb_to_wkt::convert(&bytes),
         SridMode::Strip => wkb_to_wkt_split_srid(&bytes).map(|(wkt, _)| wkt),
@@ -96,6 +100,17 @@ pub enum SridMode {
     Strip,
     /// Always embed this SRID in the output, overriding whatever the input contains.
     Set(i32),
+}
+
+/// Normalises `SridMode::Set(n)` with n ≤ 0 to `SridMode::Strip`.
+///
+/// Per the PostGIS convention (`SRID_IS_UNKNOWN(x) ((int)x<=0)`), SRID values ≤ 0
+/// mean "unknown / no spatial reference" and must not appear in EWKT output.
+fn normalise_srid_mode(mode: SridMode) -> SridMode {
+    match mode {
+        SridMode::Set(n) if n <= 0 => SridMode::Strip,
+        other => other,
+    }
 }
 
 /// Explicit input selector for generic converters.
@@ -141,6 +156,7 @@ pub fn to_wkb(input: Input<'_>, srid: SridMode) -> Result<Vec<u8>> {
 }
 
 fn to_wkb_text(text: &str, srid: SridMode) -> Result<Vec<u8>> {
+    let srid = normalise_srid_mode(srid);
     let trimmed = text.trim();
     match srid {
         SridMode::Auto => {
@@ -175,7 +191,7 @@ fn to_wkb_owned_bytes(wkb: Vec<u8>, srid: SridMode) -> Result<Vec<u8>> {
 }
 
 fn to_wkb_bytes(wkb: &[u8], srid: SridMode) -> Result<Vec<u8>> {
-    Ok(apply_srid_to_wkb(wkb, srid)?.into_owned())
+    Ok(apply_srid_to_wkb(wkb, normalise_srid_mode(srid))?.into_owned())
 }
 
 fn apply_srid_to_wkb(wkb: &[u8], srid: SridMode) -> Result<Cow<'_, [u8]>> {
@@ -229,6 +245,7 @@ pub fn to_wkt(input: Input<'_>, srid: SridMode, normalize_wkt: bool) -> Result<S
 }
 
 fn to_wkt_text(text: &str, srid: SridMode, normalize_wkt: bool) -> Result<String> {
+    let srid = normalise_srid_mode(srid);
     let trimmed = text.trim();
     if trimmed.is_empty() {
         return Err(Error::InvalidWkt("empty input".into()));
@@ -319,6 +336,7 @@ pub fn to_hex_wkb(input: Input<'_>, srid: SridMode) -> Result<String> {
 }
 
 fn to_hex_wkb_text(text: &str, srid: SridMode) -> Result<String> {
+    let srid = normalise_srid_mode(srid);
     let trimmed = text.trim();
     if srid == SridMode::Auto {
         if let Some(hex) = try_normalize_hex_uppercase(trimmed) {
@@ -346,6 +364,7 @@ fn to_hex_wkb_text(text: &str, srid: SridMode) -> Result<String> {
 }
 
 fn to_hex_wkb_bytes(wkb: &[u8], srid: SridMode) -> Result<String> {
+    let srid = normalise_srid_mode(srid);
     match srid {
         SridMode::Auto => Ok(encode_hex(wkb)),
         SridMode::Strip => match try_strip_srid_from_le_wkb(wkb) {

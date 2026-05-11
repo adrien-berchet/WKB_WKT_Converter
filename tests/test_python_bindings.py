@@ -61,19 +61,19 @@ def test_wkt_to_wkb_srid_int_overrides_srid():
     assert m.wkb_to_wkt(result) == "SRID=3857;POINT (1 2)"
 
 
-def test_wkt_to_wkb_srid_zero_is_accepted():
-    result = m.wkt_to_wkb("POINT (1 2)", srid=0)
-    assert m.wkb_to_wkt(result) == "SRID=0;POINT (1 2)"
+def test_wkt_to_wkb_srid_zero_acts_as_strip():
+    result = m.wkt_to_wkb("SRID=4326;POINT (1 2)", srid=0)
+    assert m.wkb_to_wkt(result) == "POINT (1 2)"
 
 
-def test_wkt_to_wkb_srid_negative_one_is_accepted():
-    result = m.wkt_to_wkb("POINT (1 2)", srid=-1)
-    assert m.wkb_to_wkt(result) == "SRID=-1;POINT (1 2)"
+def test_wkt_to_wkb_srid_minus_one_acts_as_strip():
+    result = m.wkt_to_wkb("SRID=4326;POINT (1 2)", srid=-1)
+    assert m.wkb_to_wkt(result) == "POINT (1 2)"
 
 
-def test_wkt_to_wkb_ewkt_negative_srid_round_trips():
+def test_ewkt_with_negative_srid_strips_srid():
     result = m.wkt_to_wkb("SRID=-1;POINT (1 2)")
-    assert m.wkb_to_wkt(result) == "SRID=-1;POINT (1 2)"
+    assert m.wkb_to_wkt(result) == "POINT (1 2)"
 
 
 def test_wkt_to_wkb_srid_true_raises_value_error():
@@ -193,14 +193,14 @@ def test_wkb_to_wkt_srid_int_overrides_srid():
     assert m.wkb_to_wkt(wkb, srid=3857) == "SRID=3857;POINT (1 2)"
 
 
-def test_wkb_to_wkt_srid_zero_is_accepted():
-    wkb = m.wkt_to_wkb("POINT (1 2)")
-    assert m.wkb_to_wkt(wkb, srid=0) == "SRID=0;POINT (1 2)"
+def test_wkb_to_wkt_srid_zero_acts_as_strip():
+    wkb = m.wkt_to_wkb("SRID=4326;POINT (1 2)")
+    assert m.wkb_to_wkt(wkb, srid=0) == "POINT (1 2)"
 
 
-def test_wkb_to_wkt_srid_negative_one_is_accepted():
-    wkb = m.wkt_to_wkb("POINT (1 2)")
-    assert m.wkb_to_wkt(wkb, srid=-1) == "SRID=-1;POINT (1 2)"
+def test_wkb_to_wkt_srid_negative_one_acts_as_strip():
+    wkb = m.wkt_to_wkb("SRID=4326;POINT (1 2)")
+    assert m.wkb_to_wkt(wkb, srid=-1) == "POINT (1 2)"
 
 
 def test_wkb_to_wkt_srid_true_raises_value_error():
@@ -351,9 +351,9 @@ def test_wkt_to_hex_wkb_srid_int_overrides_srid():
     assert m.hex_wkb_to_wkt(result) == "SRID=3857;POINT (1 2)"
 
 
-def test_wkt_to_hex_wkb_srid_zero_is_accepted():
-    result = m.wkt_to_hex_wkb("POINT (1 2)", srid=0)
-    assert m.hex_wkb_to_wkt(result) == "SRID=0;POINT (1 2)"
+def test_wkt_to_hex_wkb_srid_zero_acts_as_strip():
+    result = m.wkt_to_hex_wkb("SRID=4326;POINT (1 2)", srid=0)
+    assert m.hex_wkb_to_wkt(result) == "POINT (1 2)"
 
 
 def test_wkt_to_hex_wkb_srid_true_raises_value_error():
@@ -408,9 +408,9 @@ def test_hex_wkb_to_wkt_srid_int_overrides_srid():
     assert m.hex_wkb_to_wkt(hex_wkb, srid=3857) == "SRID=3857;POINT (1 2)"
 
 
-def test_hex_wkb_to_wkt_srid_zero_is_accepted():
-    hex_wkb = m.wkt_to_hex_wkb("POINT (1 2)")
-    assert m.hex_wkb_to_wkt(hex_wkb, srid=0) == "SRID=0;POINT (1 2)"
+def test_hex_wkb_to_wkt_srid_zero_acts_as_strip():
+    hex_wkb = m.wkt_to_hex_wkb("SRID=4326;POINT (1 2)")
+    assert m.hex_wkb_to_wkt(hex_wkb, srid=0) == "POINT (1 2)"
 
 
 def test_hex_wkb_to_wkt_srid_true_raises_value_error():
@@ -519,9 +519,9 @@ def test_to_wkb_odd_length_hex_raises():
         m.to_wkb("ABC")
 
 
-def test_to_wkb_srid_zero_is_accepted():
-    result = m.to_wkb("POINT (1 2)", srid=0)
-    assert m.wkb_to_wkt(result) == "SRID=0;POINT (1 2)"
+def test_to_wkb_srid_zero_acts_as_strip():
+    result = m.to_wkb("SRID=4326;POINT (1 2)", srid=0)
+    assert m.wkb_to_wkt(result) == "POINT (1 2)"
 
 
 def test_to_wkb_srid_none_is_default():
@@ -708,9 +708,9 @@ def test_to_wkt_odd_length_hex_raises():
         m.to_wkt("ABC", normalize_wkt=True)
 
 
-def test_to_wkt_srid_zero_is_accepted():
-    result = m.to_wkt("POINT (1 2)", srid=0, normalize_wkt=True)
-    assert result == "SRID=0;POINT (1 2)"
+def test_to_wkt_srid_zero_acts_as_strip():
+    result = m.to_wkt("SRID=4326;POINT (1 2)", srid=0, normalize_wkt=True)
+    assert result == "POINT (1 2)"
 
 
 def test_to_wkt_srid_none_is_default():
