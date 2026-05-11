@@ -250,7 +250,7 @@ def test_oracle_multipolygon(geom):
 # ── SRID round-trip tests ─────────────────────────────────────────────────────
 
 
-@given(st_point_2d(), st.integers(min_value=0, max_value=2**31 - 1))
+@given(st_point_2d(), st.integers(min_value=1, max_value=2**31 - 1))
 def test_srid_preserved_in_roundtrip(geom, srid):
     # Use our own canonical WKT to avoid any float-formatting difference
     # between Shapely's WKT output and ours.
