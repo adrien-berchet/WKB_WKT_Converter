@@ -438,6 +438,24 @@ fn wkt_no_normalize_auto_strips_zero_srid_prefix() {
 }
 
 #[test]
+fn wkt_no_normalize_auto_unparseable_srid_returned_as_is() {
+    // SRID value is not a valid i32 → strip_unknown_srid_prefix falls through unchanged
+    assert_eq!(
+        to_wkt("SRID=notanint;POINT (1 2)", SridMode::Auto, false).unwrap(),
+        "SRID=notanint;POINT (1 2)"
+    );
+}
+
+#[test]
+fn wkt_no_normalize_auto_srid_prefix_without_semicolon_returned_as_is() {
+    // "SRID=" present but no ";" → strip_unknown_srid_prefix falls through unchanged
+    assert_eq!(
+        to_wkt("SRID=4326POINT (1 2)", SridMode::Auto, false).unwrap(),
+        "SRID=4326POINT (1 2)"
+    );
+}
+
+#[test]
 fn wkt_no_normalize_strip_removes_srid_prefix() {
     assert_eq!(
         to_wkt("SRID=4326;POINT (1 2)", SridMode::Strip, false).unwrap(),

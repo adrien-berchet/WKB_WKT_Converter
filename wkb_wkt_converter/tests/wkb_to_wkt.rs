@@ -265,6 +265,16 @@ fn big_endian_point() {
     assert_eq!(wkb_to_wkt(&wkb).unwrap(), "POINT (1 2)");
 }
 
+#[test]
+fn big_endian_point_with_srid() {
+    let mut wkb = vec![0x00u8]; // BE
+    wkb.extend_from_slice(&0x2000_0001u32.to_be_bytes()); // type = EWKB SRID | Point XY
+    wkb.extend_from_slice(&4326i32.to_be_bytes()); // SRID = 4326 (big-endian i32)
+    wkb.extend_from_slice(&1.0f64.to_be_bytes());
+    wkb.extend_from_slice(&2.0f64.to_be_bytes());
+    assert_eq!(wkb_to_wkt(&wkb).unwrap(), "SRID=4326;POINT (1 2)");
+}
+
 // ── LineString ───────────────────────────────────────────────────────────────
 
 #[test]
