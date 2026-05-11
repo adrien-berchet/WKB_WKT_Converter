@@ -66,13 +66,23 @@ def test_wkt_to_wkb_srid_zero_is_accepted():
     assert m.wkb_to_wkt(result) == "SRID=0;POINT (1 2)"
 
 
+def test_wkt_to_wkb_srid_negative_one_is_accepted():
+    result = m.wkt_to_wkb("POINT (1 2)", srid=-1)
+    assert m.wkb_to_wkt(result) == "SRID=-1;POINT (1 2)"
+
+
+def test_wkt_to_wkb_ewkt_negative_srid_round_trips():
+    result = m.wkt_to_wkb("SRID=-1;POINT (1 2)")
+    assert m.wkb_to_wkt(result) == "SRID=-1;POINT (1 2)"
+
+
 def test_wkt_to_wkb_srid_true_raises_value_error():
     with pytest.raises(ValueError, match="srid=True is not valid"):
         m.wkt_to_wkb("POINT (1 2)", srid=True)
 
 
 def test_wkt_to_wkb_srid_invalid_type_raises_value_error():
-    with pytest.raises(ValueError, match="srid must be None, False, or a non-negative integer"):
+    with pytest.raises(ValueError, match="srid must be None, False, or an integer"):
         m.wkt_to_wkb("POINT (1 2)", srid=3.14)
 
 
@@ -188,6 +198,11 @@ def test_wkb_to_wkt_srid_zero_is_accepted():
     assert m.wkb_to_wkt(wkb, srid=0) == "SRID=0;POINT (1 2)"
 
 
+def test_wkb_to_wkt_srid_negative_one_is_accepted():
+    wkb = m.wkt_to_wkb("POINT (1 2)")
+    assert m.wkb_to_wkt(wkb, srid=-1) == "SRID=-1;POINT (1 2)"
+
+
 def test_wkb_to_wkt_srid_true_raises_value_error():
     wkb = m.wkt_to_wkb("POINT (1 2)")
     with pytest.raises(ValueError, match="srid=True is not valid"):
@@ -196,7 +211,7 @@ def test_wkb_to_wkt_srid_true_raises_value_error():
 
 def test_wkb_to_wkt_srid_invalid_type_raises_value_error():
     wkb = m.wkt_to_wkb("POINT (1 2)")
-    with pytest.raises(ValueError, match="srid must be None, False, or a non-negative integer"):
+    with pytest.raises(ValueError, match="srid must be None, False, or an integer"):
         m.wkb_to_wkt(wkb, srid=3.14)
 
 
@@ -347,7 +362,7 @@ def test_wkt_to_hex_wkb_srid_true_raises_value_error():
 
 
 def test_wkt_to_hex_wkb_srid_invalid_type_raises_value_error():
-    with pytest.raises(ValueError, match="srid must be None, False, or a non-negative integer"):
+    with pytest.raises(ValueError, match="srid must be None, False, or an integer"):
         m.wkt_to_hex_wkb("POINT (1 2)", srid=3.14)
 
 
@@ -406,7 +421,7 @@ def test_hex_wkb_to_wkt_srid_true_raises_value_error():
 
 def test_hex_wkb_to_wkt_srid_invalid_type_raises_value_error():
     hex_wkb = m.wkt_to_hex_wkb("POINT (1 2)")
-    with pytest.raises(ValueError, match="srid must be None, False, or a non-negative integer"):
+    with pytest.raises(ValueError, match="srid must be None, False, or an integer"):
         m.hex_wkb_to_wkt(hex_wkb, srid=3.14)
 
 
@@ -602,7 +617,7 @@ def test_to_wkb_srid_true_raises_value_error():
 
 
 def test_to_wkb_srid_invalid_type_raises_value_error():
-    with pytest.raises(ValueError, match="srid must be None, False, or a non-negative integer"):
+    with pytest.raises(ValueError, match="srid must be None, False, or an integer"):
         m.to_wkb("POINT (1 2)", srid=3.14)
 
 

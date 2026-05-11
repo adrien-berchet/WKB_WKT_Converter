@@ -195,6 +195,29 @@ fn wkb_to_wkt_set_zero_is_accepted() {
     );
 }
 
+#[test]
+fn wkb_to_wkt_set_negative_one_srid() {
+    let wkb = wkb_of("POINT (1 2)");
+    assert_eq!(
+        core_wkb_to_wkt(&wkb, SridMode::Set(-1)).unwrap(),
+        "SRID=-1;POINT (1 2)"
+    );
+}
+
+#[test]
+fn wkb_to_wkt_round_trips_negative_srid_from_ewkb() {
+    // Craft EWKB bytes with SRID=-1 (stored as 0xFFFFFFFF in little-endian).
+    let mut wkb = vec![0x01u8];
+    wkb.extend_from_slice(&0x2000_0001u32.to_le_bytes()); // type=Point | EWKB_SRID
+    wkb.extend_from_slice(&(-1i32).to_le_bytes()); // SRID = -1
+    wkb.extend_from_slice(&1.0f64.to_le_bytes()); // x
+    wkb.extend_from_slice(&2.0f64.to_le_bytes()); // y
+    assert_eq!(wkb_to_wkt(&wkb).unwrap(), "SRID=-1;POINT (1 2)");
+    let (plain, srid) = wkb_to_wkt_split_srid(&wkb).unwrap();
+    assert_eq!(plain, "POINT (1 2)");
+    assert_eq!(srid, Some(-1));
+}
+
 // ── ISO WKB (non-EWKB, dimension via type offset) ────────────────────────────
 
 /// ISO WKB encodes XYZ as type+1000. Verify we decode it correctly.

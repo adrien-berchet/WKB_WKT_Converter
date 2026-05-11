@@ -20,7 +20,7 @@ pub(crate) fn convert(wkt: &str) -> Result<Vec<u8>> {
 ///
 /// Any input `SRID=` prefix is still parsed and validated, but its value is
 /// ignored in favour of the forced output SRID.
-pub(crate) fn convert_with_forced_srid(wkt: &str, srid: u32) -> Result<Vec<u8>> {
+pub(crate) fn convert_with_forced_srid(wkt: &str, srid: i32) -> Result<Vec<u8>> {
     let mut tok = Tokenizer::new(wkt);
     tok.read_srid_prefix()?;
     convert_tokenized(tok, wkt.len(), Some(srid))
@@ -32,7 +32,7 @@ pub(crate) fn convert_to_hex(wkt: &str) -> Result<String> {
     convert_tokenized_to_hex(tok, wkt.len(), srid)
 }
 
-pub(crate) fn convert_to_hex_with_forced_srid(wkt: &str, srid: u32) -> Result<String> {
+pub(crate) fn convert_to_hex_with_forced_srid(wkt: &str, srid: i32) -> Result<String> {
     let mut tok = Tokenizer::new(wkt);
     tok.read_srid_prefix()?;
     convert_tokenized_to_hex(tok, wkt.len(), Some(srid))
@@ -44,7 +44,7 @@ pub(crate) fn convert_to_hex_split_srid(wkt: &str) -> Result<String> {
     convert_tokenized_to_hex(tok, wkt.len(), None)
 }
 
-fn convert_tokenized(mut tok: Tokenizer<'_>, wkt_len: usize, srid: Option<u32>) -> Result<Vec<u8>> {
+fn convert_tokenized(mut tok: Tokenizer<'_>, wkt_len: usize, srid: Option<i32>) -> Result<Vec<u8>> {
     let mut writer = WkbWriter::with_capacity(initial_wkb_capacity(wkt_len));
     parse_geometry_at_depth(&mut tok, &mut writer, srid, 0)?;
     tok.expect_eof()?;
@@ -54,7 +54,7 @@ fn convert_tokenized(mut tok: Tokenizer<'_>, wkt_len: usize, srid: Option<u32>) 
 fn convert_tokenized_to_hex(
     mut tok: Tokenizer<'_>,
     wkt_len: usize,
-    srid: Option<u32>,
+    srid: Option<i32>,
 ) -> Result<String> {
     let mut writer = HexWkbWriter::with_capacity(initial_wkb_capacity(wkt_len));
     parse_geometry_at_depth(&mut tok, &mut writer, srid, 0)?;
@@ -63,7 +63,7 @@ fn convert_tokenized_to_hex(
 }
 
 /// Converts WKT/EWKT to EWKB, returning the SRID separately (not embedded in bytes).
-pub(crate) fn convert_split_srid(wkt: &str) -> Result<(Vec<u8>, Option<u32>)> {
+pub(crate) fn convert_split_srid(wkt: &str) -> Result<(Vec<u8>, Option<i32>)> {
     let mut tok = Tokenizer::new(wkt);
     let srid = tok.read_srid_prefix()?;
     let mut writer = WkbWriter::with_capacity(initial_wkb_capacity(wkt.len()));
@@ -79,7 +79,7 @@ fn initial_wkb_capacity(wkt_len: usize) -> usize {
 fn parse_geometry_at_depth(
     tok: &mut Tokenizer<'_>,
     writer: &mut impl WkbWrite,
-    srid: Option<u32>,
+    srid: Option<i32>,
     depth: usize,
 ) -> Result<(GeomType, Dimension)> {
     if depth >= MAX_GEOMETRY_DEPTH {
@@ -104,7 +104,7 @@ fn parse_point(
     tok: &mut Tokenizer<'_>,
     writer: &mut impl WkbWrite,
     dim: Dimension,
-    srid: Option<u32>,
+    srid: Option<i32>,
 ) -> Result<()> {
     writer.write_header(GeomType::Point, dim, srid);
     match tok.read_empty_or_lparen()? {
@@ -124,7 +124,7 @@ fn parse_linestring(
     tok: &mut Tokenizer<'_>,
     writer: &mut impl WkbWrite,
     dim: Dimension,
-    srid: Option<u32>,
+    srid: Option<i32>,
 ) -> Result<()> {
     writer.write_header(GeomType::LineString, dim, srid);
     match tok.read_empty_or_lparen()? {
@@ -144,7 +144,7 @@ fn parse_polygon(
     tok: &mut Tokenizer<'_>,
     writer: &mut impl WkbWrite,
     dim: Dimension,
-    srid: Option<u32>,
+    srid: Option<i32>,
 ) -> Result<()> {
     writer.write_header(GeomType::Polygon, dim, srid);
     match tok.read_empty_or_lparen()? {
@@ -164,7 +164,7 @@ fn parse_multi_point(
     tok: &mut Tokenizer<'_>,
     writer: &mut impl WkbWrite,
     dim: Dimension,
-    srid: Option<u32>,
+    srid: Option<i32>,
 ) -> Result<()> {
     writer.write_header(GeomType::MultiPoint, dim, srid);
     match tok.read_empty_or_lparen()? {
@@ -199,7 +199,7 @@ fn parse_multi_linestring(
     tok: &mut Tokenizer<'_>,
     writer: &mut impl WkbWrite,
     dim: Dimension,
-    srid: Option<u32>,
+    srid: Option<i32>,
 ) -> Result<()> {
     writer.write_header(GeomType::MultiLineString, dim, srid);
     match tok.read_empty_or_lparen()? {
@@ -234,7 +234,7 @@ fn parse_multi_polygon(
     tok: &mut Tokenizer<'_>,
     writer: &mut impl WkbWrite,
     dim: Dimension,
-    srid: Option<u32>,
+    srid: Option<i32>,
 ) -> Result<()> {
     writer.write_header(GeomType::MultiPolygon, dim, srid);
     match tok.read_empty_or_lparen()? {
@@ -269,7 +269,7 @@ fn parse_collection(
     tok: &mut Tokenizer<'_>,
     writer: &mut impl WkbWrite,
     dim: Dimension,
-    srid: Option<u32>,
+    srid: Option<i32>,
     depth: usize,
 ) -> Result<()> {
     writer.write_header(GeomType::GeometryCollection, dim, srid);

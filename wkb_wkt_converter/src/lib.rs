@@ -30,7 +30,7 @@ pub fn wkb_to_wkt(wkb: &[u8], srid: SridMode) -> Result<String> {
 
 /// Converts WKB/EWKB bytes to a WKT string, returning the SRID separately.
 /// The returned WKT string does not include a `SRID=N;` prefix.
-pub fn wkb_to_wkt_split_srid(wkb: &[u8]) -> Result<(String, Option<u32>)> {
+pub fn wkb_to_wkt_split_srid(wkb: &[u8]) -> Result<(String, Option<i32>)> {
     wkb_to_wkt::convert_split_srid(wkb)
 }
 
@@ -50,7 +50,7 @@ pub fn wkt_to_wkb(wkt: &str, srid: SridMode) -> Result<Vec<u8>> {
 
 /// Converts a WKT/EWKT string to EWKB bytes, returning the SRID separately.
 /// The SRID is not embedded in the returned bytes.
-pub fn wkt_to_wkb_split_srid(wkt: &str) -> Result<(Vec<u8>, Option<u32>)> {
+pub fn wkt_to_wkb_split_srid(wkt: &str) -> Result<(Vec<u8>, Option<i32>)> {
     wkt_to_wkb::convert_split_srid(wkt)
 }
 
@@ -95,7 +95,7 @@ pub enum SridMode {
     /// Always strip any SRID from the output.
     Strip,
     /// Always embed this SRID in the output, overriding whatever the input contains.
-    Set(u32),
+    Set(i32),
 }
 
 /// Explicit input selector for generic converters.
@@ -557,12 +557,12 @@ fn try_strip_srid_from_le_wkb(bytes: &[u8]) -> Option<Cow<'_, [u8]>> {
 /// with canonical EWKB type flags. In those cases the caller should fall back
 /// to a full WKB→WKT→WKB round-trip, which normalises type codes and handles
 /// big-endian, collection, or ISO-dimensional input.
-fn try_set_srid_in_le_wkb(bytes: &[u8], srid: u32) -> Option<Cow<'_, [u8]>> {
+fn try_set_srid_in_le_wkb(bytes: &[u8], srid: i32) -> Option<Cow<'_, [u8]>> {
     let header = try_read_le_fast_path_header(bytes)?;
     let canonical_type_with_srid = header.canonical_type_without_srid | EWKB_SRID;
     if header.type_u32 & EWKB_SRID != 0 {
         // SRID already present — check if it already equals the requested SRID.
-        let stored_srid = u32::from_le_bytes(bytes[5..9].try_into().unwrap());
+        let stored_srid = i32::from_le_bytes(bytes[5..9].try_into().unwrap());
         if stored_srid == srid && header.type_u32 == canonical_type_with_srid {
             return Some(Cow::Borrowed(bytes));
         }

@@ -1,6 +1,6 @@
 from typing import Literal, Optional, Tuple, Union
 
-# Runtime rejects srid=True and integers outside the u32 range. Type checkers
+# Runtime rejects srid=True and integers outside the i32 range. Type checkers
 # cannot precisely express those constraints while still accepting int SRIDs.
 _SridArg = Union[None, Literal[False], int]
 # Runtime also accepts other C-contiguous one-byte buffer-protocol objects, but

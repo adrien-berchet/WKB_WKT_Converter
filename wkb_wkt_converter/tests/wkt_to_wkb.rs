@@ -129,6 +129,25 @@ fn wkt_to_wkb_set_zero_is_accepted() {
 }
 
 #[test]
+fn wkt_to_wkb_set_negative_one_srid() {
+    let wkb = core_wkt_to_wkb("POINT (1 2)", SridMode::Set(-1)).unwrap();
+    assert_eq!(wkb_to_wkt(&wkb).unwrap(), "SRID=-1;POINT (1 2)");
+}
+
+#[test]
+fn wkt_ewkt_negative_srid_prefix_round_trips() {
+    let wkb = core_wkt_to_wkb("SRID=-1;POINT (1 2)", SridMode::Auto).unwrap();
+    assert_eq!(wkb_to_wkt(&wkb).unwrap(), "SRID=-1;POINT (1 2)");
+}
+
+#[test]
+fn wkt_to_wkb_split_srid_returns_negative_srid() {
+    let (wkb, srid) = wkt_to_wkb_split_srid("SRID=-1;POINT (1 2)").unwrap();
+    assert_eq!(srid, Some(-1));
+    assert_eq!(wkb_to_wkt(&wkb).unwrap(), "POINT (1 2)");
+}
+
+#[test]
 fn wkt_to_hex_wkb_auto_preserves_srid() {
     let hex = core_wkt_to_hex_wkb("SRID=4326;POINT (1 2)", SridMode::Auto).unwrap();
     assert_eq!(
