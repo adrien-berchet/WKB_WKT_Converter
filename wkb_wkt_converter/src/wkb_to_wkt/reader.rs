@@ -7,7 +7,7 @@ const MAX_GEOMETRY_DEPTH: usize = 128;
 #[derive(Debug, Clone, Copy)]
 struct GeometryHeader {
     dim: Dimension,
-    srid: Option<u32>,
+    srid: Option<i32>,
 }
 
 pub(super) struct WkbReader<'a> {
@@ -82,9 +82,24 @@ impl<'a> WkbReader<'a> {
         }
     }
 
+    fn read_i32(&mut self) -> Result<i32> {
+        if self.remaining() < 4 {
+            return Err(Error::InvalidWkb(
+                "unexpected end of data reading i32".into(),
+            ));
+        }
+        let bytes: [u8; 4] = self.data[self.pos..self.pos + 4].try_into().unwrap();
+        self.pos += 4;
+        Ok(if self.little_endian {
+            i32::from_le_bytes(bytes)
+        } else {
+            i32::from_be_bytes(bytes)
+        })
+    }
+
     /// Decodes the 4-byte type code, handling both ISO WKB and EWKB encodings.
     /// Returns (GeomType, Dimension, Option<SRID>).
-    fn read_type(&mut self) -> Result<(GeomType, Dimension, Option<u32>)> {
+    fn read_type(&mut self) -> Result<(GeomType, Dimension, Option<i32>)> {
         let raw = self.read_u32()?;
 
         let has_z = raw & EWKB_Z != 0;
@@ -118,7 +133,12 @@ impl<'a> WkbReader<'a> {
 
         let geom_type = GeomType::from_u32(geom_code)?;
         let srid = if has_srid {
-            Some(self.read_u32()?)
+            let raw = self.read_i32()?;
+            if raw > 0 {
+                Some(raw)
+            } else {
+                None
+            }
         } else {
             None
         };
@@ -143,7 +163,7 @@ impl<'a> WkbReader<'a> {
         &mut self,
         out: &mut WktBuilder,
         include_srid_prefix: bool,
-    ) -> Result<Option<u32>> {
+    ) -> Result<Option<i32>> {
         self.read_geometry_at_depth(out, include_srid_prefix, 0)
             .map(|header| header.srid)
     }

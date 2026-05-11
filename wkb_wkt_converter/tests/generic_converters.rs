@@ -274,10 +274,44 @@ fn odd_length_hex_string_errors() {
     assert!(to_hex_wkb("ABC", SridMode::Auto).is_err());
 }
 
+/// SRID=0 is "unknown" per PostGIS convention; Set(0) behaves like Strip.
 #[test]
-fn srid_set_zero_is_accepted() {
-    let wkb = to_wkb("POINT (1 2)", SridMode::Set(0)).unwrap();
-    assert_eq!(wkb_to_wkt(&wkb).unwrap(), "SRID=0;POINT (1 2)");
+fn srid_set_zero_acts_as_strip() {
+    let wkb = to_wkb("SRID=4326;POINT (1 2)", SridMode::Set(0)).unwrap();
+    assert_eq!(wkb_to_wkt(&wkb).unwrap(), "POINT (1 2)");
+}
+
+// ── EWKT with negative/zero SRID prefix ─────────────────────────────────
+
+/// EWKT with SRID=0 prefix: tokenizer normalises to no-SRID, treated as plain WKT.
+#[test]
+fn ewkt_zero_srid_prefix_acts_as_plain_wkt_for_to_wkb() {
+    let wkb = to_wkb("SRID=0;POINT (1 2)", SridMode::Auto).unwrap();
+    assert_eq!(wkb_to_wkt(&wkb).unwrap(), "POINT (1 2)");
+}
+
+/// EWKT with SRID=-1 prefix: tokenizer normalises to no-SRID, treated as plain WKT.
+#[test]
+fn ewkt_negative_srid_prefix_acts_as_plain_wkt_for_to_wkb() {
+    let wkb = to_wkb("SRID=-1;POINT (1 2)", SridMode::Auto).unwrap();
+    assert_eq!(wkb_to_wkt(&wkb).unwrap(), "POINT (1 2)");
+}
+
+#[test]
+fn ewkt_negative_srid_prefix_acts_as_plain_wkt_for_to_wkt() {
+    assert_eq!(
+        to_wkt("SRID=-1;POINT (1 2)", SridMode::Auto, true).unwrap(),
+        "POINT (1 2)"
+    );
+}
+
+#[test]
+fn ewkt_negative_srid_prefix_acts_as_plain_wkt_for_to_hex_wkb() {
+    let h = to_hex_wkb("SRID=-1;POINT (1 2)", SridMode::Auto).unwrap();
+    assert_eq!(
+        wkb_to_wkt(&hex::decode(&h).unwrap()).unwrap(),
+        "POINT (1 2)"
+    );
 }
 
 // ── to_wkt: input detection and normalisation ───────────────────────────
@@ -384,6 +418,40 @@ fn wkt_no_normalize_auto_preserves_srid_prefix() {
     assert_eq!(
         to_wkt("SRID=4326;POINT (1 2)", SridMode::Auto, false).unwrap(),
         "SRID=4326;POINT (1 2)"
+    );
+}
+
+#[test]
+fn wkt_no_normalize_auto_strips_negative_srid_prefix() {
+    assert_eq!(
+        to_wkt("SRID=-1;POINT (1 2)", SridMode::Auto, false).unwrap(),
+        "POINT (1 2)"
+    );
+}
+
+#[test]
+fn wkt_no_normalize_auto_strips_zero_srid_prefix() {
+    assert_eq!(
+        to_wkt("SRID=0;POINT (1 2)", SridMode::Auto, false).unwrap(),
+        "POINT (1 2)"
+    );
+}
+
+#[test]
+fn wkt_no_normalize_auto_unparseable_srid_returned_as_is() {
+    // SRID value is not a valid i32 → strip_unknown_srid_prefix falls through unchanged
+    assert_eq!(
+        to_wkt("SRID=notanint;POINT (1 2)", SridMode::Auto, false).unwrap(),
+        "SRID=notanint;POINT (1 2)"
+    );
+}
+
+#[test]
+fn wkt_no_normalize_auto_srid_prefix_without_semicolon_returned_as_is() {
+    // "SRID=" present but no ";" → strip_unknown_srid_prefix falls through unchanged
+    assert_eq!(
+        to_wkt("SRID=4326POINT (1 2)", SridMode::Auto, false).unwrap(),
+        "SRID=4326POINT (1 2)"
     );
 }
 

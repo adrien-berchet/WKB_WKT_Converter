@@ -23,7 +23,7 @@ impl WktBuilder {
         self.buf.push(c);
     }
 
-    pub fn push_srid_prefix(&mut self, srid: u32) {
+    pub fn push_srid_prefix(&mut self, srid: i32) {
         write!(self.buf, "SRID={srid};").unwrap();
     }
 

@@ -49,7 +49,7 @@ impl<'a> Tokenizer<'a> {
     }
 
     /// Reads `SRID=<n>;` prefix if present. Must be called before any other method.
-    pub fn read_srid_prefix(&mut self) -> Result<Option<u32>> {
+    pub fn read_srid_prefix(&mut self) -> Result<Option<i32>> {
         self.skip_whitespace();
         // Use a case-insensitive prefix check on the first 5 ASCII bytes.
         // `get` keeps malformed non-ASCII prefixes on the normal error path.
@@ -59,10 +59,10 @@ impl<'a> Tokenizer<'a> {
             .is_some_and(|p| p.eq_ignore_ascii_case("SRID="))
         {
             self.pos += 5;
-            let srid = self.read_uint()?;
+            let srid = self.read_srid_int()?;
             self.skip_whitespace();
             if self.consume_byte(b';') {
-                Ok(Some(srid))
+                Ok(if srid > 0 { Some(srid) } else { None })
             } else {
                 Err(Error::InvalidWkt("expected ';' after SRID value".into()))
             }
@@ -71,25 +71,24 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
-    fn read_uint(&mut self) -> Result<u32> {
-        let start = self.pos;
+    fn read_srid_int(&mut self) -> Result<i32> {
         let bytes = self.input.as_bytes();
-        let mut end = start;
-        while bytes.get(end).is_some_and(u8::is_ascii_digit) {
-            end += 1;
+        let start = self.pos;
+        if bytes.get(self.pos) == Some(&b'-') {
+            self.pos += 1;
         }
-        if end == start {
+        let digits_start = self.pos;
+        while bytes.get(self.pos).is_some_and(u8::is_ascii_digit) {
+            self.pos += 1;
+        }
+        if self.pos == digits_start {
             return Err(Error::InvalidWkt(format!(
-                "expected integer at position {}",
-                self.pos
+                "expected integer at position {digits_start}"
             )));
         }
-        let s = &self.input[start..end];
-        let v = s
-            .parse::<u32>()
-            .map_err(|_| Error::InvalidWkt(format!("integer out of u32 range: {s}")))?;
-        self.pos = end;
-        Ok(v)
+        let s = &self.input[start..self.pos];
+        s.parse::<i32>()
+            .map_err(|_| Error::InvalidWkt(format!("integer out of i32 range: {s}")))
     }
 
     /// Reads the geometry type keyword and an optional dimension tag (Z / M / ZM).

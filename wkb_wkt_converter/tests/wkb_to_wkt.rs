@@ -186,13 +186,38 @@ fn wkb_to_wkt_set_overrides_srid() {
     );
 }
 
+/// SRID=0 is "unknown" per PostGIS convention; Set(0) behaves like Strip.
 #[test]
-fn wkb_to_wkt_set_zero_is_accepted() {
-    let wkb = wkb_of("POINT (1 2)");
+fn wkb_to_wkt_set_zero_acts_as_strip() {
+    let wkb = wkb_of("SRID=4326;POINT (1 2)");
     assert_eq!(
         core_wkb_to_wkt(&wkb, SridMode::Set(0)).unwrap(),
-        "SRID=0;POINT (1 2)"
+        "POINT (1 2)"
     );
+}
+
+/// SRID=-1 ≤ 0 → treated as unknown; Set(-1) behaves like Strip.
+#[test]
+fn wkb_to_wkt_set_negative_one_acts_as_strip() {
+    let wkb = wkb_of("SRID=4326;POINT (1 2)");
+    assert_eq!(
+        core_wkb_to_wkt(&wkb, SridMode::Set(-1)).unwrap(),
+        "POINT (1 2)"
+    );
+}
+
+/// A PostGIS-generated EWKB with SRID=-1 (0xFFFFFFFF LE) is output as plain WKT.
+#[test]
+fn wkb_from_postgis_with_srid_minus_one_outputs_plain_wkt() {
+    let mut wkb = vec![0x01u8];
+    wkb.extend_from_slice(&0x2000_0001u32.to_le_bytes()); // type=Point | EWKB_SRID
+    wkb.extend_from_slice(&(-1i32).to_le_bytes()); // SRID = -1 (unknown)
+    wkb.extend_from_slice(&1.0f64.to_le_bytes()); // x
+    wkb.extend_from_slice(&2.0f64.to_le_bytes()); // y
+    assert_eq!(wkb_to_wkt(&wkb).unwrap(), "POINT (1 2)");
+    let (plain, srid) = wkb_to_wkt_split_srid(&wkb).unwrap();
+    assert_eq!(plain, "POINT (1 2)");
+    assert_eq!(srid, None);
 }
 
 // ── ISO WKB (non-EWKB, dimension via type offset) ────────────────────────────
@@ -238,6 +263,16 @@ fn big_endian_point() {
     wkb.extend_from_slice(&1.0f64.to_be_bytes());
     wkb.extend_from_slice(&2.0f64.to_be_bytes());
     assert_eq!(wkb_to_wkt(&wkb).unwrap(), "POINT (1 2)");
+}
+
+#[test]
+fn big_endian_point_with_srid() {
+    let mut wkb = vec![0x00u8]; // BE
+    wkb.extend_from_slice(&0x2000_0001u32.to_be_bytes()); // type = EWKB SRID | Point XY
+    wkb.extend_from_slice(&4326i32.to_be_bytes()); // SRID = 4326 (big-endian i32)
+    wkb.extend_from_slice(&1.0f64.to_be_bytes());
+    wkb.extend_from_slice(&2.0f64.to_be_bytes());
+    assert_eq!(wkb_to_wkt(&wkb).unwrap(), "SRID=4326;POINT (1 2)");
 }
 
 // ── LineString ───────────────────────────────────────────────────────────────
@@ -416,12 +451,13 @@ fn hex_wkb_to_wkt_set_overrides_srid() {
     );
 }
 
+/// SRID=0 is "unknown" per PostGIS convention; Set(0) behaves like Strip.
 #[test]
-fn hex_wkb_to_wkt_set_zero_is_accepted() {
-    let hex = wkt_to_hex_wkb("POINT (1 2)").unwrap();
+fn hex_wkb_to_wkt_set_zero_acts_as_strip() {
+    let hex = wkt_to_hex_wkb("SRID=4326;POINT (1 2)").unwrap();
     assert_eq!(
         hex_wkb_to_wkt(&hex, SridMode::Set(0)).unwrap(),
-        "SRID=0;POINT (1 2)"
+        "POINT (1 2)"
     );
 }
 

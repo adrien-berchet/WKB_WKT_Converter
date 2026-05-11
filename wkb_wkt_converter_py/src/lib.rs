@@ -11,7 +11,7 @@ fn to_py_err(e: core::Error) -> PyErr {
     PyValueError::new_err(e.to_string())
 }
 
-/// Maps the Python `srid` argument (`None`, `False`, or a non-negative integer) to
+/// Maps the Python `srid` argument (`None`, `False`, or an integer) to
 /// a [`core::SridMode`].  `True` is rejected with a clear error message.
 fn parse_srid_arg(val: Option<Bound<'_, PyAny>>) -> PyResult<core::SridMode> {
     match val {
@@ -25,11 +25,16 @@ fn parse_srid_arg(val: Option<Bound<'_, PyAny>>) -> PyResult<core::SridMode> {
                 } else {
                     Ok(core::SridMode::Strip)
                 }
-            } else if let Ok(n) = v.extract::<u32>() {
+            } else if let Ok(n) = v.extract::<i32>() {
                 Ok(core::SridMode::Set(n))
+            } else if v.extract::<i64>().is_ok() {
+                Err(PyValueError::new_err(
+                    "srid is out of the allowed range: must fit in a 32-bit integer \
+                     (-2147483648 to 2147483647)",
+                ))
             } else {
                 Err(PyValueError::new_err(
-                    "srid must be None, False, or a non-negative integer",
+                    "srid must be None, False, or an integer",
                 ))
             }
         }
@@ -105,7 +110,7 @@ fn wkb_to_wkt(wkb: Bound<'_, PyAny>, srid: Option<Bound<'_, PyAny>>) -> PyResult
 /// copying; mutating a writable buffer during conversion is unsupported and may
 /// produce invalid or inconsistent results.
 #[pyfunction]
-fn wkb_to_wkt_split_srid(wkb: Bound<'_, PyAny>) -> PyResult<(String, Option<u32>)> {
+fn wkb_to_wkt_split_srid(wkb: Bound<'_, PyAny>) -> PyResult<(String, Option<i32>)> {
     with_wkb_buffer(&wkb, "wkb", |wkb| {
         core::wkb_to_wkt_split_srid(wkb).map_err(to_py_err)
     })
@@ -126,7 +131,7 @@ fn wkt_to_wkb(wkt: &str, srid: Option<Bound<'_, PyAny>>) -> PyResult<Vec<u8>> {
 /// Converts a WKT/EWKT string to EWKB bytes and returns the SRID separately.
 /// The SRID is not embedded in the returned bytes.
 #[pyfunction]
-fn wkt_to_wkb_split_srid(wkt: &str) -> PyResult<(Vec<u8>, Option<u32>)> {
+fn wkt_to_wkb_split_srid(wkt: &str) -> PyResult<(Vec<u8>, Option<i32>)> {
     core::wkt_to_wkb_split_srid(wkt).map_err(to_py_err)
 }
 

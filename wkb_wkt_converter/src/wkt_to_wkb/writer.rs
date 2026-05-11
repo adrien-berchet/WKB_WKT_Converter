@@ -13,12 +13,12 @@ pub(super) trait WkbWrite {
     ///   - byte order byte (always 0x01 = little-endian)
     ///   - type code (geometry type | dimension flags | SRID flag)
     ///   - SRID value (if srid is Some)
-    fn write_header(&mut self, geom_type: GeomType, dim: Dimension, srid: Option<u32>) {
+    fn write_header(&mut self, geom_type: GeomType, dim: Dimension, srid: Option<i32>) {
         self.write_u8(1); // little-endian
         let type_code = geom_type as u32 | dim.ewkb_flags() | srid.map_or(0, |_| EWKB_SRID);
         self.write_u32(type_code);
         if let Some(s) = srid {
-            self.write_u32(s);
+            self.write_u32(s as u32);
         }
     }
 }
