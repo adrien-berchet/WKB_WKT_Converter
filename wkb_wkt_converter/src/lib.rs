@@ -115,7 +115,8 @@ pub enum SridMode {
 /// without a full parse).  Only inputs with unknown flag bits or an invalid
 /// byte-order marker fall back to a full [`wkb_to_wkt_split_srid`] parse.
 ///
-/// Returns `None` when no SRID is embedded in the top-level header.
+/// Returns `None` when no SRID is embedded in the top-level header, including
+/// raw EWKB SRID values that are non-positive.
 pub fn wkb_header_srid(wkb: &[u8]) -> Result<Option<i32>> {
     match try_read_ewkb_srid_fast(wkb) {
         Some(r) => r,
@@ -125,10 +126,11 @@ pub fn wkb_header_srid(wkb: &[u8]) -> Result<Option<i32>> {
 
 /// Strips the top-level SRID flag and SRID field from a WKB/EWKB byte slice.
 ///
-/// For canonical little-endian EWKB with any geometry type 1–7 (Point through
-/// GeometryCollection), the header is rewritten without parsing the geometry
-/// body.  Big-endian and ISO-dimensional inputs fall back to a full
-/// WKB→WKT→WKB round-trip which normalises the representation.
+/// For canonical little-endian EWKB with Point, LineString, or Polygon type
+/// codes, the header is rewritten without parsing the geometry body.
+/// Collection types, big-endian inputs, and ISO-dimensional inputs fall back
+/// to a full WKB→WKT→WKB round-trip which normalises the representation and
+/// preserves the invariant that only the top-level header may carry an SRID.
 ///
 /// Returns the input unchanged when no SRID is present.
 pub fn wkb_strip_srid(wkb: &[u8]) -> Result<Vec<u8>> {
@@ -141,10 +143,11 @@ pub fn wkb_strip_srid(wkb: &[u8]) -> Result<Vec<u8>> {
 /// (`SRID_IS_UNKNOWN(x) ((int)x<=0)`) and strip the SRID instead, identical
 /// to [`wkb_strip_srid`].
 ///
-/// For canonical little-endian EWKB with any geometry type 1–7 (Point through
-/// GeometryCollection), the header is rewritten without parsing the geometry
-/// body.  Big-endian and ISO-dimensional inputs fall back to a full
-/// WKB→WKT→WKB round-trip which normalises the representation.
+/// For canonical little-endian EWKB with Point, LineString, or Polygon type
+/// codes, the header is rewritten without parsing the geometry body.
+/// Collection types, big-endian inputs, and ISO-dimensional inputs fall back
+/// to a full WKB→WKT→WKB round-trip which normalises the representation and
+/// preserves the invariant that only the top-level header may carry an SRID.
 pub fn wkb_set_srid(wkb: &[u8], srid: i32) -> Result<Vec<u8>> {
     apply_srid_to_wkb(wkb, normalise_srid_mode(SridMode::Set(srid))).map(|c| c.into_owned())
 }
@@ -191,9 +194,10 @@ pub enum Input<'a> {
 /// - [`SridMode::Set(n)`]: always embed SRID `n`, overriding any SRID in the input.
 ///
 /// **Note on validation:** for canonical little-endian EWKB hex text or raw
-/// WKB input of any type 1–7 under `Strip` and `Set`, the fast path rewrites
-/// only the top-level EWKB header. Big-endian and ISO-dimensional inputs fall
-/// back to a full parse round-trip which normalises the geometry body.
+/// WKB input with Point, LineString, or Polygon type codes under `Strip` and
+/// `Set`, the fast path rewrites only the top-level EWKB header. Collection
+/// types, big-endian inputs, and ISO-dimensional inputs fall back to a full
+/// parse round-trip which normalises the geometry body and nested headers.
 pub fn to_wkb(input: Input<'_>, srid: SridMode) -> Result<Vec<u8>> {
     match input {
         Input::Text(text) => to_wkb_text(text, srid),
@@ -510,7 +514,7 @@ fn try_read_ewkb_srid_fast(wkb: &[u8]) -> Option<Result<Option<i32>>> {
     } else {
         i32::from_be_bytes(srid_bytes)
     };
-    Some(Ok(Some(srid)))
+    Some(Ok((srid > 0).then_some(srid)))
 }
 
 /// Encode bytes as an uppercase hexadecimal string using a lookup table.
@@ -651,7 +655,7 @@ fn try_read_le_fast_path_header(bytes: &[u8]) -> Option<LeFastPathHeader> {
         return None;
     }
     let base_geom_type = type_u32 & 0x0000_FFFF;
-    if !(1..=7).contains(&base_geom_type) {
+    if !(1..=3).contains(&base_geom_type) {
         return None;
     }
 

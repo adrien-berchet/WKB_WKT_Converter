@@ -27,12 +27,13 @@ fn wkt_of(bytes: &[u8]) -> String {
 //   0x000010E6        SRID = 4326 (BE i32)
 //   0x3FF0…  X = 1.0 (BE f64)
 //   0x4000…  Y = 2.0 (BE f64)
-const BE_SRID_POINT_HEX: &str =
-    "002000000100001\
+const BE_SRID_POINT_HEX: &str = "002000000100001\
      0E63FF00000000000004000000000000000";
 
 // Big-endian WKB for POINT (1 2) — no SRID.
 const BE_POINT_HEX: &str = "00000000013FF00000000000004000000000000000";
+const LE_SRID_ZERO_POINT_HEX: &str = "010100002000000000000000000000F03F0000000000000040";
+const LE_SRID_MINUS_ONE_POINT_HEX: &str = "0101000020FFFFFFFF000000000000F03F0000000000000040";
 
 fn make_iso_point_z() -> Vec<u8> {
     let mut wkb = vec![0x01u8]; // LE
@@ -103,11 +104,22 @@ fn header_srid_iso_point_z_returns_none() {
 }
 
 #[test]
-fn header_srid_srid_value_minus_one_returned_as_is() {
-    // A WKB that embeds SRID=-1 should return -1, not None.
+fn header_srid_negative_srid_in_wkt_input_is_normalized_away() {
     let bytes = wkb("SRID=-1;POINT (1 2)");
     // SRID=-1 is normalised to "no SRID" by wkt_to_wkb, so the embedded
     // SRID flag is cleared — we get None.
+    assert_eq!(wkb_header_srid(&bytes).unwrap(), None);
+}
+
+#[test]
+fn header_srid_raw_zero_is_treated_as_unknown() {
+    let bytes = from_hex(LE_SRID_ZERO_POINT_HEX);
+    assert_eq!(wkb_header_srid(&bytes).unwrap(), None);
+}
+
+#[test]
+fn header_srid_raw_negative_one_is_treated_as_unknown() {
+    let bytes = from_hex(LE_SRID_MINUS_ONE_POINT_HEX);
     assert_eq!(wkb_header_srid(&bytes).unwrap(), None);
 }
 
@@ -164,10 +176,7 @@ fn strip_srid_big_endian_falls_back_to_full_parse() {
 fn strip_srid_multipolygon_uses_fast_path() {
     let bytes = wkb("SRID=4326;MULTIPOLYGON (((0 0, 1 0, 1 1, 0 0)))");
     let stripped = wkb_strip_srid(&bytes).unwrap();
-    assert_eq!(
-        wkt_of(&stripped),
-        "MULTIPOLYGON (((0 0, 1 0, 1 1, 0 0)))"
-    );
+    assert_eq!(wkt_of(&stripped), "MULTIPOLYGON (((0 0, 1 0, 1 1, 0 0)))");
 }
 
 #[test]

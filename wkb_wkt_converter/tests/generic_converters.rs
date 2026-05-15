@@ -935,7 +935,7 @@ fn set_iso_xyz_point_normalizes_to_ewkb_with_srid() {
 }
 
 #[test]
-fn strip_geometry_collection_fast_path_preserves_nested_srids() {
+fn strip_geometry_collection_fallback_scrubs_nested_srids() {
     const NESTED_SRID_GC: &str = concat!(
         "0107000020E6100000", // GC, SRID=4326
         "01000000",           // 1 sub-geometry
@@ -946,19 +946,18 @@ fn strip_geometry_collection_fast_path_preserves_nested_srids() {
         "0000000000000040",   // y=2.0
     );
     let wkb = to_wkb(NESTED_SRID_GC, SridMode::Strip).unwrap();
-    // The fast path rewrites only the top-level EWKB header; the nested
-    // sub-geometry's SRID flag is passed through unchanged.  The geometry
-    // still round-trips correctly because the WKT serialiser tolerates the
-    // (non-standard) nested SRID.
+    // Collection types now fall back to the full parse/round-trip path,
+    // which removes SRIDs from nested sub-geometries to preserve the repo
+    // invariant that only the top-level header may carry an SRID.
     assert_eq!(
         wkb_to_wkt(&wkb).unwrap(),
         "GEOMETRYCOLLECTION (POINT (1 2))"
     );
     assert_eq!(u32::from_le_bytes(wkb[1..5].try_into().unwrap()), 7);
-    // Sub-geometry type word retains its SRID flag (0x20000001 = POINT|EWKB_SRID).
+    // Sub-geometry type word is normalized to plain POINT.
     assert_eq!(
         u32::from_le_bytes(wkb[10..14].try_into().unwrap()),
-        0x2000_0001
+        0x0000_0001
     );
 }
 

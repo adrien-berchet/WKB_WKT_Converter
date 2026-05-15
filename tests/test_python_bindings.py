@@ -91,6 +91,11 @@ def test_wkt_to_wkb_srid_out_of_range_raises_value_error():
         m.wkt_to_wkb("POINT (1 2)", srid=2**40)
 
 
+def test_wkt_to_wkb_srid_huge_int_raises_range_value_error():
+    with pytest.raises(ValueError, match="32-bit"):
+        m.wkt_to_wkb("POINT (1 2)", srid=2**80)
+
+
 def test_wkt_to_wkb_invalid_raises_value_error_with_srid_control():
     with pytest.raises(ValueError, match="invalid WKT"):
         m.wkt_to_wkb("NOT_A_GEOMETRY (1 2)", srid=False)
@@ -1197,6 +1202,23 @@ def test_to_ewkb_header_srid_negative_strips_srid():
     result = m.to_ewkb_header(wkb, -1)
     assert isinstance(result, bytes)
     assert m.wkb_to_wkt(result) == "POINT (1 2)"
+
+
+def test_to_ewkb_header_srid_false_strips_and_matches_helper():
+    wkb = m.wkt_to_wkb("SRID=4326;POINT (1 2)")
+    result = m.to_ewkb_header(wkb, False)
+    assert isinstance(result, bytes)
+    assert result == m.to_wkb_no_srid_header(wkb)
+
+
+def test_to_ewkb_header_srid_true_raises_value_error():
+    with pytest.raises(ValueError, match="srid=True is not valid"):
+        m.to_ewkb_header(m.wkt_to_wkb("POINT (1 2)"), True)
+
+
+def test_to_ewkb_header_srid_huge_int_raises_range_value_error():
+    with pytest.raises(ValueError, match="32-bit"):
+        m.to_ewkb_header(m.wkt_to_wkb("POINT (1 2)"), 2**80)
 
 
 def test_to_ewkb_header_big_endian_binary():

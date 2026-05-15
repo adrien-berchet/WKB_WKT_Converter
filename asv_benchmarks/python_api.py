@@ -114,6 +114,10 @@ GEOMETRIES_HEX_WKB = {
     name: wkb.hex().upper()
     for name, wkb in GEOMETRIES_WKB.items()
 }
+HEADER_POINT_WKB = GEOMETRIES_WKB["point"]
+HEADER_POINT_EWKB_SRID_4326 = (
+    struct.pack("<BIi", 1, 0x20000001, 4326) + struct.pack("<dd", 1.5, 2.5)
+)
 
 
 class PythonApiSuite:
@@ -172,3 +176,21 @@ class PythonApiSuite:
 
     def time_to_hex_wkb_from_wkb(self, geometry):
         self.conv.to_hex_wkb(self.wkb)
+
+
+class HeaderHelpersSuite:
+    def setup(self):
+        import wkb_wkt_converter as conv
+
+        self.conv = conv
+        self.wkb = HEADER_POINT_WKB
+        self.ewkb = HEADER_POINT_EWKB_SRID_4326
+
+    def time_wkb_header_srid_from_wkb(self):
+        self.conv.wkb_header_srid(self.ewkb)
+
+    def time_to_wkb_no_srid_header_from_wkb(self):
+        self.conv.to_wkb_no_srid_header(self.ewkb)
+
+    def time_to_ewkb_header_from_wkb(self):
+        self.conv.to_ewkb_header(self.wkb, 4326)

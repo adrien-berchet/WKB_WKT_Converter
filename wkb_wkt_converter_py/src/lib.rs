@@ -11,33 +11,66 @@ fn to_py_err(e: core::Error) -> PyErr {
     PyValueError::new_err(e.to_string())
 }
 
+fn srid_range_error() -> PyErr {
+    PyValueError::new_err(
+        "srid is out of the allowed range: must fit in a 32-bit integer \
+         (-2147483648 to 2147483647)",
+    )
+}
+
+fn parse_srid_value(
+    val: &Bound<'_, PyAny>,
+    true_error: &'static str,
+    type_error: &'static str,
+) -> PyResult<core::SridMode> {
+    if val.is_instance_of::<PyBool>() {
+        if val.extract::<bool>()? {
+            Err(PyValueError::new_err(true_error))
+        } else {
+            Ok(core::SridMode::Strip)
+        }
+    } else if let Ok(n) = val.extract::<i32>() {
+        Ok(core::SridMode::Set(n))
+    } else if let Ok(index) = val.call_method0("__index__") {
+        index
+            .extract::<i32>()
+            .map(core::SridMode::Set)
+            .map_err(|_| srid_range_error())
+    } else {
+        Err(PyValueError::new_err(type_error))
+    }
+}
+
 /// Maps the Python `srid` argument (`None`, `False`, or an integer) to
 /// a [`core::SridMode`].  `True` is rejected with a clear error message.
 fn parse_srid_arg(val: Option<Bound<'_, PyAny>>) -> PyResult<core::SridMode> {
     match val {
         None => Ok(core::SridMode::Auto),
-        Some(v) => {
-            if v.is_instance_of::<PyBool>() {
-                if v.extract::<bool>()? {
-                    Err(PyValueError::new_err(
-                        "srid=True is not valid; pass an integer SRID, False, or None",
-                    ))
-                } else {
-                    Ok(core::SridMode::Strip)
-                }
-            } else if let Ok(n) = v.extract::<i32>() {
-                Ok(core::SridMode::Set(n))
-            } else if v.extract::<i64>().is_ok() {
-                Err(PyValueError::new_err(
-                    "srid is out of the allowed range: must fit in a 32-bit integer \
-                     (-2147483648 to 2147483647)",
-                ))
-            } else {
-                Err(PyValueError::new_err(
-                    "srid must be None, False, or an integer",
-                ))
-            }
-        }
+        Some(v) => parse_srid_value(
+            &v,
+            "srid=True is not valid; pass an integer SRID, False, or None",
+            "srid must be None, False, or an integer",
+        ),
+    }
+}
+
+/// Maps the required Python `srid` argument for ``to_ewkb_header``.
+///
+/// `False` strips the SRID, `True` is rejected to avoid ambiguity, and an
+/// integer embeds or replaces the SRID.
+fn parse_header_srid_arg(val: Bound<'_, PyAny>) -> PyResult<core::SridMode> {
+    parse_srid_value(
+        &val,
+        "srid=True is not valid; pass an integer SRID or False",
+        "srid must be False or an integer",
+    )
+}
+
+fn apply_header_srid_arg(wkb: &[u8], srid: core::SridMode) -> Result<Vec<u8>, core::Error> {
+    match srid {
+        core::SridMode::Strip => core::wkb_strip_srid(wkb),
+        core::SridMode::Set(n) => core::wkb_set_srid(wkb, n),
+        core::SridMode::Auto => unreachable!("to_ewkb_header requires an explicit SRID argument"),
     }
 }
 
@@ -200,10 +233,11 @@ fn to_hex_wkb(source: Bound<'_, PyAny>, srid: Option<Bound<'_, PyAny>>) -> PyRes
 /// copying; mutating a writable buffer during conversion is unsupported and may
 /// produce invalid or inconsistent results.
 ///
-/// For ``False`` and integer SRIDs, canonical little-endian EWKB hex or
-/// bytes-like input of any type 1–7 is patched at the top-level header
-/// without scanning the geometry body. Malformed coordinate bodies or trailing
-/// bytes in those fast paths can pass through as invalid output bytes.
+/// For ``False`` and integer SRIDs, canonical little-endian Point,
+/// LineString, and Polygon EWKB hex or bytes-like input is patched at the
+/// top-level header without scanning the geometry body. Malformed coordinate
+/// bodies or trailing bytes in those simple fast paths can pass through as
+/// invalid output bytes.
 #[pyfunction]
 #[pyo3(signature = (source, srid=None))]
 fn to_wkb(source: Bound<'_, PyAny>, srid: Option<Bound<'_, PyAny>>) -> PyResult<Vec<u8>> {
@@ -286,10 +320,10 @@ fn wkb_header_srid(source: Bound<'_, PyAny>) -> PyResult<Option<i32>> {
 /// string.  The return type mirrors the input type: binary input returns
 /// ``bytes``, hex-string input returns an uppercase hex string.
 ///
-/// For canonical little-endian EWKB with any geometry type 1–7 (Point through
-/// GeometryCollection), the header is rewritten without parsing the geometry
-/// body.  Big-endian and ISO-dimensional inputs fall back to a full
-/// WKB→WKT→WKB round-trip which normalises the representation.
+/// For canonical little-endian EWKB with Point, LineString, or Polygon type
+/// codes, the header is rewritten without parsing the geometry body.
+/// Collection types, big-endian inputs, and ISO-dimensional inputs fall back
+/// to a full WKB→WKT→WKB round-trip which normalises the representation.
 #[pyfunction]
 fn to_wkb_no_srid_header(source: Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
     let py = source.py();
@@ -311,26 +345,28 @@ fn to_wkb_no_srid_header(source: Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
 /// string.  The return type mirrors the input type: binary input returns
 /// ``bytes``, hex-string input returns an uppercase hex string.
 ///
-/// An existing embedded SRID is replaced rather than doubled.  SRID values
-/// ≤ 0 strip the SRID per the PostGIS convention
-/// (``SRID_IS_UNKNOWN(x) ((int)x<=0)``), identical to
+/// An existing embedded SRID is replaced rather than doubled.  Pass ``False``
+/// to strip the SRID; pass an integer to embed or replace it.  ``True`` is
+/// rejected to avoid ambiguity.  Integer SRID values ≤ 0 strip the SRID per
+/// the PostGIS convention (``SRID_IS_UNKNOWN(x) ((int)x<=0)``), identical to
 /// ``to_wkb_no_srid_header``.
 ///
-/// For canonical little-endian EWKB with any geometry type 1–7 (Point through
-/// GeometryCollection), the header is rewritten without parsing the geometry
-/// body.  Big-endian and ISO-dimensional inputs fall back to a full
-/// WKB→WKT→WKB round-trip which normalises the representation.
+/// For canonical little-endian EWKB with Point, LineString, or Polygon type
+/// codes, the header is rewritten without parsing the geometry body.
+/// Collection types, big-endian inputs, and ISO-dimensional inputs fall back
+/// to a full WKB→WKT→WKB round-trip which normalises the representation.
 #[pyfunction]
-fn to_ewkb_header(source: Bound<'_, PyAny>, srid: i32) -> PyResult<Py<PyAny>> {
+fn to_ewkb_header(source: Bound<'_, PyAny>, srid: Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
     let py = source.py();
+    let srid = parse_header_srid_arg(srid)?;
     if let Ok(text) = source.cast::<PyString>() {
         let bytes = core::decode_hex(text.to_str()?).map_err(to_py_err)?;
-        let result = core::wkb_set_srid(&bytes, srid).map_err(to_py_err)?;
+        let result = apply_header_srid_arg(&bytes, srid).map_err(to_py_err)?;
         let hex = core::encode_hex(&result);
         return Ok(PyString::new(py, &hex).into_any().unbind());
     }
     with_wkb_buffer(&source, "source", |wkb| {
-        let result = core::wkb_set_srid(wkb, srid).map_err(to_py_err)?;
+        let result = apply_header_srid_arg(wkb, srid).map_err(to_py_err)?;
         Ok(PyBytes::new(py, &result).into_any().unbind())
     })
 }
