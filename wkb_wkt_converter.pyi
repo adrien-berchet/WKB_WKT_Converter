@@ -1,4 +1,4 @@
-from typing import Literal, Optional, Tuple, Union
+from typing import Literal, Optional, Tuple, Union, overload
 
 # Runtime rejects srid=True and integers outside the i32 range. Type checkers
 # cannot precisely express those constraints while still accepting int SRIDs.
@@ -38,3 +38,28 @@ def to_wkt(
 
 
 def to_hex_wkb(source: _Input, srid: _SridArg = None) -> str: ...
+
+
+def wkb_header_srid(source: _Input) -> Optional[int]: ...
+
+
+@overload
+def to_wkb_no_srid_header(source: str) -> str: ...
+
+
+@overload
+def to_wkb_no_srid_header(source: _WkbInput) -> bytes: ...
+
+
+def to_wkb_no_srid_header(source: _Input) -> Union[bytes, str]: ...
+
+
+@overload
+def to_ewkb_header(source: str, srid: int) -> str: ...
+
+
+@overload
+def to_ewkb_header(source: _WkbInput, srid: int) -> bytes: ...
+
+
+def to_ewkb_header(source: _Input, srid: int) -> Union[bytes, str]: ...

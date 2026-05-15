@@ -256,6 +256,84 @@ fn to_wkt(
     })
 }
 
+/// Returns the SRID embedded in the top-level WKB/EWKB header, or ``None``
+/// if no SRID is present.
+///
+/// ``source`` may be a bytes-like WKB/EWKB value or a hex-encoded WKB/EWKB
+/// string.  For bytes-like input it is borrowed without copying.
+///
+/// For little-endian and big-endian EWKB with canonical EWKB flag bits and
+/// any geometry type (Point through GeometryCollection), the SRID is read
+/// directly from the 9-byte header without parsing the geometry body.
+/// ISO-dimensional WKB (type codes ≥ 1000) and other non-canonical inputs
+/// fall back to a full parse to extract the SRID.
+#[pyfunction]
+fn wkb_header_srid(source: Bound<'_, PyAny>) -> PyResult<Option<i32>> {
+    if let Ok(text) = source.cast::<PyString>() {
+        let bytes = core::decode_hex(text.to_str()?).map_err(to_py_err)?;
+        return core::wkb_header_srid(&bytes).map_err(to_py_err);
+    }
+    with_wkb_buffer(&source, "source", |wkb| {
+        core::wkb_header_srid(wkb).map_err(to_py_err)
+    })
+}
+
+/// Strips the top-level SRID flag and SRID field from WKB/EWKB input.
+///
+/// ``source`` may be a bytes-like WKB/EWKB value or a hex-encoded WKB/EWKB
+/// string.  The return type mirrors the input type: binary input returns
+/// ``bytes``, hex-string input returns an uppercase hex string.
+///
+/// For canonical little-endian EWKB with Point, LineString, or Polygon type
+/// codes, the header is rewritten without parsing the geometry body.  All
+/// other inputs (big-endian, ISO-dimensional, Multi\* and GeometryCollection)
+/// fall back to a full WKB→WKT→WKB round-trip which normalises the
+/// representation.
+#[pyfunction]
+fn to_wkb_no_srid_header(source: Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+    let py = source.py();
+    if let Ok(text) = source.cast::<PyString>() {
+        let bytes = core::decode_hex(text.to_str()?).map_err(to_py_err)?;
+        let result = core::wkb_strip_srid(&bytes).map_err(to_py_err)?;
+        let hex = core::encode_hex(&result);
+        return Ok(PyString::new(py, &hex).into_any().unbind());
+    }
+    with_wkb_buffer(&source, "source", |wkb| {
+        let result = core::wkb_strip_srid(wkb).map_err(to_py_err)?;
+        Ok(PyBytes::new(py, &result).into_any().unbind())
+    })
+}
+
+/// Embeds or replaces the SRID in WKB/EWKB input.
+///
+/// ``source`` may be a bytes-like WKB/EWKB value or a hex-encoded WKB/EWKB
+/// string.  The return type mirrors the input type: binary input returns
+/// ``bytes``, hex-string input returns an uppercase hex string.
+///
+/// An existing embedded SRID is replaced rather than doubled.  SRID values
+/// ≤ 0 strip the SRID per the PostGIS convention
+/// (``SRID_IS_UNKNOWN(x) ((int)x<=0)``), identical to
+/// ``to_wkb_no_srid_header``.
+///
+/// For canonical little-endian EWKB with Point, LineString, or Polygon type
+/// codes, the header is rewritten without parsing the geometry body.  All
+/// other inputs fall back to a full WKB→WKT→WKB round-trip which normalises
+/// the representation.
+#[pyfunction]
+fn to_ewkb_header(source: Bound<'_, PyAny>, srid: i32) -> PyResult<Py<PyAny>> {
+    let py = source.py();
+    if let Ok(text) = source.cast::<PyString>() {
+        let bytes = core::decode_hex(text.to_str()?).map_err(to_py_err)?;
+        let result = core::wkb_set_srid(&bytes, srid).map_err(to_py_err)?;
+        let hex = core::encode_hex(&result);
+        return Ok(PyString::new(py, &hex).into_any().unbind());
+    }
+    with_wkb_buffer(&source, "source", |wkb| {
+        let result = core::wkb_set_srid(wkb, srid).map_err(to_py_err)?;
+        Ok(PyBytes::new(py, &result).into_any().unbind())
+    })
+}
+
 #[pymodule(name = "wkb_wkt_converter")]
 fn wkb_wkt_converter_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(wkb_to_wkt, m)?)?;
@@ -267,5 +345,8 @@ fn wkb_wkt_converter_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(to_wkb, m)?)?;
     m.add_function(wrap_pyfunction!(to_wkt, m)?)?;
     m.add_function(wrap_pyfunction!(to_hex_wkb, m)?)?;
+    m.add_function(wrap_pyfunction!(wkb_header_srid, m)?)?;
+    m.add_function(wrap_pyfunction!(to_wkb_no_srid_header, m)?)?;
+    m.add_function(wrap_pyfunction!(to_ewkb_header, m)?)?;
     Ok(())
 }

@@ -104,6 +104,50 @@ pub enum SridMode {
     Set(i32),
 }
 
+/// Reads the SRID embedded in the top-level EWKB header without converting
+/// the full geometry.
+///
+/// For little-endian and big-endian EWKB with canonical EWKB flag bits and
+/// any geometry type 1–7, the SRID is read directly from the 9-byte header
+/// without parsing the geometry body.  ISO-dimensional WKB (type codes ≥ 1000),
+/// unknown flag bits, and unrecognised byte-order markers fall back to a full
+/// [`wkb_to_wkt_split_srid`] parse, which handles all formats correctly.
+///
+/// Returns `None` when no SRID is embedded in the top-level header.
+pub fn wkb_header_srid(wkb: &[u8]) -> Result<Option<i32>> {
+    match try_read_ewkb_srid_fast(wkb) {
+        Some(r) => r,
+        None => wkb_to_wkt_split_srid(wkb).map(|(_, srid)| srid),
+    }
+}
+
+/// Strips the top-level SRID flag and SRID field from a WKB/EWKB byte slice.
+///
+/// For canonical little-endian EWKB with Point, LineString, or Polygon type
+/// codes, the header is rewritten without parsing the geometry body.  All
+/// other inputs (big-endian, ISO-dimensional, Multi\* and GeometryCollection,
+/// or ISO type codes) fall back to a full WKB→WKT→WKB round-trip which
+/// normalises the representation.
+///
+/// Returns the input unchanged when no SRID is present.
+pub fn wkb_strip_srid(wkb: &[u8]) -> Result<Vec<u8>> {
+    apply_srid_to_wkb(wkb, SridMode::Strip).map(|c| c.into_owned())
+}
+
+/// Embeds or replaces the SRID in a WKB/EWKB byte slice.
+///
+/// SRID values ≤ 0 are treated as unknown per the PostGIS convention
+/// (`SRID_IS_UNKNOWN(x) ((int)x<=0)`) and strip the SRID instead, identical
+/// to [`wkb_strip_srid`].
+///
+/// For canonical little-endian EWKB with Point, LineString, or Polygon type
+/// codes, the header is rewritten without parsing the geometry body.  All
+/// other inputs fall back to a full WKB→WKT→WKB round-trip which normalises
+/// the representation.
+pub fn wkb_set_srid(wkb: &[u8], srid: i32) -> Result<Vec<u8>> {
+    apply_srid_to_wkb(wkb, normalise_srid_mode(SridMode::Set(srid))).map(|c| c.into_owned())
+}
+
 /// Normalises `SridMode::Set(n)` with n ≤ 0 to `SridMode::Strip`.
 ///
 /// Per the PostGIS convention (`SRID_IS_UNKNOWN(x) ((int)x<=0)`), SRID values ≤ 0
@@ -418,11 +462,61 @@ fn strip_ewkt_prefix(wkt: &str) -> &str {
     wkt
 }
 
+/// Fast path for reading the SRID from LE or BE EWKB headers with any
+/// geometry type 1–7.
+///
+/// Returns `None` when the bytes are not recognisable as canonical EWKB
+/// (ISO type codes, unknown flag bits, invalid byte-order marker), so the
+/// caller can fall back to a full parse.
+///
+/// Returns `Some(Err(...))` when the bytes look like canonical EWKB with an
+/// SRID flag set but are too short to contain the 4-byte SRID field.
+fn try_read_ewkb_srid_fast(wkb: &[u8]) -> Option<Result<Option<i32>>> {
+    if wkb.len() < 5 {
+        return None;
+    }
+    let little_endian = match wkb[0] {
+        1 => true,
+        0 => false,
+        _ => return None,
+    };
+    let type_bytes: [u8; 4] = wkb[1..5].try_into().unwrap();
+    let type_u32 = if little_endian {
+        u32::from_le_bytes(type_bytes)
+    } else {
+        u32::from_be_bytes(type_bytes)
+    };
+    let high_bits = type_u32 & !0x0000_FFFF;
+    if high_bits & !(EWKB_Z | EWKB_M | EWKB_SRID) != 0 {
+        return None; // ISO WKB or unknown flags — fall back
+    }
+    let base_type = type_u32 & 0x0000_FFFF;
+    if !(1..=7).contains(&base_type) {
+        return None; // Unknown geometry type — fall back
+    }
+    if type_u32 & EWKB_SRID != 0 {
+        if wkb.len() < 9 {
+            return Some(Err(Error::InvalidWkb(
+                "EWKB header has SRID flag but is too short to contain the SRID field".into(),
+            )));
+        }
+        let srid_bytes: [u8; 4] = wkb[5..9].try_into().unwrap();
+        let srid = if little_endian {
+            i32::from_le_bytes(srid_bytes)
+        } else {
+            i32::from_be_bytes(srid_bytes)
+        };
+        Some(Ok(Some(srid)))
+    } else {
+        Some(Ok(None))
+    }
+}
+
 /// Encode bytes as an uppercase hexadecimal string using a lookup table.
 ///
 /// This is substantially faster than the `write!(s, "{b:02X}")` approach
 /// because it avoids invoking the format machinery for every byte.
-fn encode_hex(bytes: &[u8]) -> String {
+pub fn encode_hex(bytes: &[u8]) -> String {
     const HEX: &[u8; 16] = b"0123456789ABCDEF";
     let mut out = vec![0u8; bytes.len().saturating_mul(2)];
     for (chunk, &b) in out.chunks_exact_mut(2).zip(bytes) {
@@ -512,7 +606,7 @@ fn try_normalize_hex_uppercase(s: &str) -> Option<String> {
 
 /// Decode a hex string with detailed position-aware error messages.
 /// Used by [`hex_wkb_to_wkt`] where the caller knows the input must be hex.
-fn decode_hex(hex: &str) -> Result<Vec<u8>> {
+pub fn decode_hex(hex: &str) -> Result<Vec<u8>> {
     let bytes = hex.as_bytes();
     if bytes.is_empty() {
         return Err(Error::InvalidWkb("empty hex string".into()));
