@@ -1,6 +1,7 @@
 /// Tests for wkb_header_srid / wkb_strip_srid / wkb_set_srid.
 use wkb_wkt_converter::{
-    wkb_header_srid, wkb_set_srid, wkb_strip_srid, wkb_to_wkt, wkt_to_wkb, SridMode,
+    le_ewkb_fast_path, wkb_header_srid, wkb_set_srid, wkb_strip_srid, wkb_to_wkt, wkt_to_wkb,
+    SridMode,
 };
 
 // ── shared test helpers ───────────────────────────────────────────────────────
@@ -305,4 +306,40 @@ fn header_srid_consistent_with_strip() {
     assert_eq!(wkb_header_srid(&bytes).unwrap(), Some(4326));
     let stripped = wkb_strip_srid(&bytes).unwrap();
     assert_eq!(wkb_header_srid(&stripped).unwrap(), None);
+}
+
+// ── le_ewkb_fast_path ────────────────────────────────────────────────────────
+
+#[test]
+fn le_fast_path_with_srid_returns_some() {
+    let bytes = wkb("SRID=4326;POINT (1 2)");
+    let info = le_ewkb_fast_path(&bytes).unwrap();
+    assert!(info.has_srid);
+    assert_eq!(info.stored_srid, Some(4326));
+    assert_eq!(info.canonical_type_without_srid, 1); // POINT without SRID flag
+}
+
+#[test]
+fn le_fast_path_without_srid_returns_some() {
+    let bytes = wkb("POINT (1 2)");
+    let info = le_ewkb_fast_path(&bytes).unwrap();
+    assert!(!info.has_srid);
+    assert_eq!(info.stored_srid, None);
+}
+
+#[test]
+fn le_fast_path_big_endian_returns_none() {
+    let bytes = from_hex(BE_POINT_HEX);
+    assert!(le_ewkb_fast_path(&bytes).is_none());
+}
+
+#[test]
+fn le_fast_path_multipolygon_returns_none() {
+    let bytes = wkb("SRID=4326;MULTIPOLYGON (((0 0, 1 0, 1 1, 0 0)))");
+    assert!(le_ewkb_fast_path(&bytes).is_none());
+}
+
+#[test]
+fn le_fast_path_iso_point_z_returns_none() {
+    assert!(le_ewkb_fast_path(&make_iso_point_z()).is_none());
 }
