@@ -673,6 +673,35 @@ fn try_read_le_fast_path_header(bytes: &[u8]) -> Option<LeFastPathHeader> {
     })
 }
 
+/// Information returned by [`le_ewkb_fast_path`] when the LE fast path applies.
+#[doc(hidden)]
+pub struct LeFastPathInfo {
+    /// Whether the SRID flag is set in the type word.
+    pub has_srid: bool,
+    /// The SRID value stored in the header when `has_srid` is true.
+    pub stored_srid: Option<i32>,
+    /// Type word with the SRID flag cleared (all other canonical bits kept).
+    pub canonical_type_without_srid: u32,
+}
+
+/// Returns fast-path header info when `wkb` is canonical little-endian EWKB
+/// with a Point, LineString, or Polygon type code (base types 1–3).
+///
+/// Returns `None` for big-endian, ISO-dimensional, collection, or
+/// unrecognised-flag inputs; the caller must fall back to a full parse.
+#[doc(hidden)]
+pub fn le_ewkb_fast_path(wkb: &[u8]) -> Option<LeFastPathInfo> {
+    let header = try_read_le_fast_path_header(wkb)?;
+    let has_srid = header.type_u32 & EWKB_SRID != 0;
+    let stored_srid = has_srid
+        .then(|| i32::from_le_bytes(wkb[5..9].try_into().unwrap()));
+    Some(LeFastPathInfo {
+        has_srid,
+        stored_srid,
+        canonical_type_without_srid: header.canonical_type_without_srid,
+    })
+}
+
 /// Strip the SRID from a canonical little-endian EWKB byte slice without
 /// parsing the geometry body.
 ///
