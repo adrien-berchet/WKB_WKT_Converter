@@ -141,6 +141,21 @@ fn header_srid_invalid_byte_order_errors() {
     assert!(wkb_header_srid(&[0x99]).is_err());
 }
 
+#[test]
+fn header_srid_invalid_byte_order_full_header_falls_back_and_errors() {
+    assert!(wkb_header_srid(&[0x99, 0x01, 0x00, 0x00, 0x00]).is_err());
+}
+
+#[test]
+fn header_srid_unknown_high_bits_falls_back_and_preserves_result() {
+    let mut bytes = vec![0x01u8];
+    bytes.extend_from_slice(&0x1000_0001u32.to_le_bytes());
+    bytes.extend_from_slice(&1.0f64.to_le_bytes());
+    bytes.extend_from_slice(&2.0f64.to_le_bytes());
+
+    assert_eq!(wkb_header_srid(&bytes).unwrap(), None);
+}
+
 // ── wkb_strip_srid ────────────────────────────────────────────────────────────
 
 #[test]

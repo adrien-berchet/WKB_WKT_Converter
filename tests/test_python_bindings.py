@@ -114,6 +114,17 @@ def test_wkt_to_wkb_srid_index_attribute_error_propagates():
         m.wkt_to_wkb("POINT (1 2)", srid=BadIndex())
 
 
+def test_wkt_to_wkb_srid_index_lookup_error_propagates():
+    class BadIndexLookup:
+        def __getattribute__(self, name):
+            if name == "__index__":
+                raise RuntimeError("boom")
+            return super().__getattribute__(name)
+
+    with pytest.raises(RuntimeError, match="boom"):
+        m.wkt_to_wkb("POINT (1 2)", srid=BadIndexLookup())
+
+
 def test_wkt_to_wkb_srid_index_returning_non_int_raises_type_error():
     class NonIntegerIndex:
         def __index__(self):

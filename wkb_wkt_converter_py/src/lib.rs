@@ -18,16 +18,31 @@ fn srid_range_error() -> PyErr {
     )
 }
 
+#[derive(Clone, Copy)]
+enum ExplicitSridMode {
+    Strip,
+    Set(i32),
+}
+
+impl From<ExplicitSridMode> for core::SridMode {
+    fn from(mode: ExplicitSridMode) -> Self {
+        match mode {
+            ExplicitSridMode::Strip => core::SridMode::Strip,
+            ExplicitSridMode::Set(n) => core::SridMode::Set(n),
+        }
+    }
+}
+
 fn parse_srid_value(
     val: &Bound<'_, PyAny>,
     true_error: &'static str,
     type_error: &'static str,
-) -> PyResult<core::SridMode> {
+) -> PyResult<ExplicitSridMode> {
     if val.is_instance_of::<PyBool>() {
         if val.extract::<bool>()? {
             Err(PyValueError::new_err(true_error))
         } else {
-            Ok(core::SridMode::Strip)
+            Ok(ExplicitSridMode::Strip)
         }
     } else if val.is_instance_of::<PyInt>() {
         parse_srid_int(val, type_error)
@@ -44,12 +59,12 @@ fn parse_srid_value(
     }
 }
 
-fn parse_srid_int(val: &Bound<'_, PyAny>, type_error: &'static str) -> PyResult<core::SridMode> {
+fn parse_srid_int(val: &Bound<'_, PyAny>, type_error: &'static str) -> PyResult<ExplicitSridMode> {
     if val.is_instance_of::<PyBool>() || !val.is_instance_of::<PyInt>() {
         return Err(PyValueError::new_err(type_error));
     }
     val.extract::<i32>()
-        .map(core::SridMode::Set)
+        .map(ExplicitSridMode::Set)
         .map_err(|_| srid_range_error())
 }
 
@@ -62,7 +77,8 @@ fn parse_srid_arg(val: Option<Bound<'_, PyAny>>) -> PyResult<core::SridMode> {
             &v,
             "srid=True is not valid; pass an integer SRID, False, or None",
             "srid must be None, False, or an integer",
-        ),
+        )
+        .map(Into::into),
     }
 }
 
@@ -70,7 +86,7 @@ fn parse_srid_arg(val: Option<Bound<'_, PyAny>>) -> PyResult<core::SridMode> {
 ///
 /// `False` strips the SRID, `True` is rejected to avoid ambiguity, and an
 /// integer embeds or replaces the SRID.
-fn parse_header_srid_arg(val: Bound<'_, PyAny>) -> PyResult<core::SridMode> {
+fn parse_header_srid_arg(val: Bound<'_, PyAny>) -> PyResult<ExplicitSridMode> {
     parse_srid_value(
         &val,
         "srid=True is not valid; pass an integer SRID or False",
@@ -78,11 +94,10 @@ fn parse_header_srid_arg(val: Bound<'_, PyAny>) -> PyResult<core::SridMode> {
     )
 }
 
-fn apply_header_srid_arg(wkb: &[u8], srid: core::SridMode) -> Result<Vec<u8>, core::Error> {
+fn apply_header_srid_arg(wkb: &[u8], srid: ExplicitSridMode) -> Result<Vec<u8>, core::Error> {
     match srid {
-        core::SridMode::Strip => core::wkb_strip_srid(wkb),
-        core::SridMode::Set(n) => core::wkb_set_srid(wkb, n),
-        core::SridMode::Auto => unreachable!("to_ewkb_header requires an explicit SRID argument"),
+        ExplicitSridMode::Strip => core::wkb_strip_srid(wkb),
+        ExplicitSridMode::Set(n) => core::wkb_set_srid(wkb, n),
     }
 }
 
