@@ -523,6 +523,7 @@ fn try_read_ewkb_srid_fast(wkb: &[u8]) -> Option<Result<Option<i32>>> {
 ///
 /// This is substantially faster than the `write!(s, "{b:02X}")` approach
 /// because it avoids invoking the format machinery for every byte.
+#[doc(hidden)]
 pub fn encode_hex(bytes: &[u8]) -> String {
     const HEX: &[u8; 16] = b"0123456789ABCDEF";
     let mut out = vec![0u8; bytes.len().saturating_mul(2)];
@@ -613,6 +614,7 @@ fn try_normalize_hex_uppercase(s: &str) -> Option<String> {
 
 /// Decode a hex string with detailed position-aware error messages.
 /// Used by [`hex_wkb_to_wkt`] where the caller knows the input must be hex.
+#[doc(hidden)]
 pub fn decode_hex(hex: &str) -> Result<Vec<u8>> {
     let bytes = hex.as_bytes();
     if bytes.is_empty() {
@@ -677,7 +679,7 @@ fn try_read_le_fast_path_header(bytes: &[u8]) -> Option<LeFastPathHeader> {
 /// Returns `None` when the bytes are not recognisable as little-endian EWKB
 /// with canonical EWKB type flags. In those cases the caller should fall back
 /// to a full WKB→WKT→WKB round-trip, which normalises type codes and handles
-/// big-endian or ISO-dimensional input.
+/// big-endian, collection, or ISO-dimensional input.
 fn try_strip_srid_from_le_wkb(bytes: &[u8]) -> Option<Cow<'_, [u8]>> {
     let header = try_read_le_fast_path_header(bytes)?;
     if header.type_u32 & EWKB_SRID == 0 {
@@ -696,7 +698,7 @@ fn try_strip_srid_from_le_wkb(bytes: &[u8]) -> Option<Cow<'_, [u8]>> {
 /// Returns `None` when the bytes are not recognisable as little-endian EWKB
 /// with canonical EWKB type flags. In those cases the caller should fall back
 /// to a full WKB→WKT→WKB round-trip, which normalises type codes and handles
-/// big-endian or ISO-dimensional input.
+/// big-endian, collection, or ISO-dimensional input.
 fn try_set_srid_in_le_wkb(bytes: &[u8], srid: i32) -> Option<Cow<'_, [u8]>> {
     let header = try_read_le_fast_path_header(bytes)?;
     let canonical_type_with_srid = header.canonical_type_without_srid | EWKB_SRID;

@@ -328,8 +328,15 @@ fn to_wkt(
 /// directly from the 9-byte header without parsing the geometry body.  This
 /// covers EWKB types 1–7, plain WKB, and ISO-dimensional WKB (which has no
 /// SRID flag, so ``None`` is returned immediately without a full parse).
-/// Only inputs with unknown flag bits or an invalid byte-order marker fall
-/// back to a full parse.
+/// Inputs shorter than the 5-byte WKB header, inputs with unknown flag bits,
+/// and inputs with an invalid byte-order marker fall back to a full parse.
+///
+/// Note: this function reads only the top-level header and does not validate
+/// the base geometry type code.  An input whose header has valid EWKB flag bits
+/// but an unsupported geometry type (e.g. type code 99) will have its SRID
+/// returned without error; attempting to convert such bytes to WKT will still
+/// fail.  This is intentional — extracting the SRID from a partially valid
+/// header can be useful even when the full geometry is unrecognised.
 #[pyfunction]
 fn wkb_header_srid(source: Bound<'_, PyAny>) -> PyResult<Option<i32>> {
     if let Ok(text) = source.cast::<PyString>() {
