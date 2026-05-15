@@ -1281,6 +1281,13 @@ def test_to_ewkb_header_does_not_double_srid():
     assert wkt == "POINT (1 2)"
 
 
+def test_to_ewkb_header_noop_when_srid_already_matches():
+    wkb = m.wkt_to_wkb("SRID=4326;POINT (1 2)")
+    result = m.to_ewkb_header(wkb, 4326)
+    assert isinstance(result, bytes)
+    assert result == wkb
+
+
 def test_to_ewkb_header_srid_zero_strips_srid():
     wkb = m.wkt_to_wkb("SRID=4326;POINT (1 2)")
     result = m.to_ewkb_header(wkb, 0)
