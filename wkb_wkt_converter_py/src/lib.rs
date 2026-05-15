@@ -133,7 +133,11 @@ fn set_to_pybytes<'py>(
     }
     // 0x2000_0000 = EWKB_SRID flag
     let canonical_with_srid = info.canonical_type_without_srid | 0x2000_0000u32;
-    let out_len = if info.has_srid { wkb.len() } else { wkb.len() + 4 };
+    let out_len = if info.has_srid {
+        wkb.len()
+    } else {
+        wkb.len() + 4
+    };
     PyBytes::new_with(py, out_len, |buf| {
         buf[0] = 1;
         buf[1..5].copy_from_slice(&canonical_with_srid.to_le_bytes());

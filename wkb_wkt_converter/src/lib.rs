@@ -693,8 +693,7 @@ pub struct LeFastPathInfo {
 pub fn le_ewkb_fast_path(wkb: &[u8]) -> Option<LeFastPathInfo> {
     let header = try_read_le_fast_path_header(wkb)?;
     let has_srid = header.type_u32 & EWKB_SRID != 0;
-    let stored_srid = has_srid
-        .then(|| i32::from_le_bytes(wkb[5..9].try_into().unwrap()));
+    let stored_srid = has_srid.then(|| i32::from_le_bytes(wkb[5..9].try_into().unwrap()));
     Some(LeFastPathInfo {
         has_srid,
         stored_srid,
