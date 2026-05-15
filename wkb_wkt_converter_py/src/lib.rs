@@ -2,9 +2,9 @@
 #![allow(clippy::useless_conversion)]
 
 use pyo3::buffer::PyUntypedBuffer;
-use pyo3::exceptions::{PyBufferError, PyTypeError, PyValueError};
+use pyo3::exceptions::{PyAttributeError, PyBufferError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyBool, PyBytes, PyBytesMethods, PyString};
+use pyo3::types::{PyBool, PyBytes, PyBytesMethods, PyInt, PyString};
 use wkb_wkt_converter as core;
 
 fn to_py_err(e: core::Error) -> PyErr {
@@ -29,16 +29,28 @@ fn parse_srid_value(
         } else {
             Ok(core::SridMode::Strip)
         }
-    } else if let Ok(n) = val.extract::<i32>() {
-        Ok(core::SridMode::Set(n))
-    } else if let Ok(index) = val.call_method0("__index__") {
-        index
-            .extract::<i32>()
-            .map(core::SridMode::Set)
-            .map_err(|_| srid_range_error())
+    } else if val.is_instance_of::<PyInt>() {
+        parse_srid_int(val, type_error)
     } else {
-        Err(PyValueError::new_err(type_error))
+        let index_method = match val.getattr("__index__") {
+            Ok(index_method) => index_method,
+            Err(err) if err.is_instance_of::<PyAttributeError>(val.py()) => {
+                return Err(PyValueError::new_err(type_error));
+            }
+            Err(err) => return Err(err),
+        };
+        let index = index_method.call0()?;
+        parse_srid_int(&index, type_error)
     }
+}
+
+fn parse_srid_int(val: &Bound<'_, PyAny>, type_error: &'static str) -> PyResult<core::SridMode> {
+    if val.is_instance_of::<PyBool>() || !val.is_instance_of::<PyInt>() {
+        return Err(PyValueError::new_err(type_error));
+    }
+    val.extract::<i32>()
+        .map(core::SridMode::Set)
+        .map_err(|_| srid_range_error())
 }
 
 /// Maps the Python `srid` argument (`None`, `False`, or an integer) to

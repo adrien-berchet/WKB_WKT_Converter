@@ -173,7 +173,7 @@ fn strip_srid_big_endian_falls_back_to_full_parse() {
 }
 
 #[test]
-fn strip_srid_multipolygon_uses_fast_path() {
+fn strip_srid_multipolygon_falls_back_and_preserves_geometry() {
     let bytes = wkb("SRID=4326;MULTIPOLYGON (((0 0, 1 0, 1 1, 0 0)))");
     let stripped = wkb_strip_srid(&bytes).unwrap();
     assert_eq!(wkt_of(&stripped), "MULTIPOLYGON (((0 0, 1 0, 1 1, 0 0)))");
@@ -253,7 +253,7 @@ fn set_srid_big_endian_falls_back_to_full_parse() {
 }
 
 #[test]
-fn set_srid_multipolygon_uses_fast_path() {
+fn set_srid_multipolygon_falls_back_and_normalises_round_trip() {
     let bytes = wkb("MULTIPOLYGON (((0 0, 1 0, 1 1, 0 0)))");
     let ewkb = wkb_set_srid(&bytes, 4326).unwrap();
     assert_eq!(

@@ -112,8 +112,9 @@ pub enum SridMode {
 /// directly from the 9-byte header without parsing the geometry body.  This
 /// covers EWKB types 1–7, plain WKB, and ISO-dimensional WKB (type codes
 /// such as 1001 have no SRID flag set, so `None` is returned immediately
-/// without a full parse).  Only inputs with unknown flag bits or an invalid
-/// byte-order marker fall back to a full [`wkb_to_wkt_split_srid`] parse.
+/// without a full parse).  Inputs shorter than the 5-byte WKB header, inputs
+/// with unknown flag bits, and inputs with an invalid byte-order marker fall
+/// back to a full [`wkb_to_wkt_split_srid`] parse.
 ///
 /// Returns `None` when no SRID is embedded in the top-level header, including
 /// raw EWKB SRID values that are non-positive.
@@ -473,9 +474,10 @@ fn strip_ewkt_prefix(wkt: &str) -> &str {
 /// covers standard EWKB (types 1–7), ISO WKB (type codes ≥ 1000 which have
 /// no high bits set and therefore no SRID flag), and plain WKB.
 ///
-/// Returns `None` only when the high bits contain flags beyond Z/M/SRID
-/// (unrecognised format) or the byte-order marker is invalid, so the caller
-/// can fall back to a full parse.
+/// Returns `None` when the slice is shorter than the 5-byte WKB header, when
+/// the high bits contain flags beyond Z/M/SRID (unrecognised format), or when
+/// the byte-order marker is invalid, so the caller can fall back to a full
+/// parse.
 ///
 /// Returns `Some(Err(...))` when the SRID flag is set but the slice is too
 /// short to contain the 4-byte SRID field.

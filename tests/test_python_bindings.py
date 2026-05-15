@@ -96,6 +96,86 @@ def test_wkt_to_wkb_srid_huge_int_raises_range_value_error():
         m.wkt_to_wkb("POINT (1 2)", srid=2**80)
 
 
+def test_wkt_to_wkb_srid_index_error_propagates():
+    class BadIndex:
+        def __index__(self):
+            raise RuntimeError("boom")
+
+    with pytest.raises(RuntimeError, match="boom"):
+        m.wkt_to_wkb("POINT (1 2)", srid=BadIndex())
+
+
+def test_wkt_to_wkb_srid_index_attribute_error_propagates():
+    class BadIndex:
+        def __index__(self):
+            raise AttributeError("boom")
+
+    with pytest.raises(AttributeError, match="boom"):
+        m.wkt_to_wkb("POINT (1 2)", srid=BadIndex())
+
+
+def test_wkt_to_wkb_srid_index_returning_non_int_raises_type_error():
+    class NonIntegerIndex:
+        def __index__(self):
+            return "4326"
+
+    with pytest.raises(ValueError, match="srid must be None, False, or an integer"):
+        m.wkt_to_wkb("POINT (1 2)", srid=NonIntegerIndex())
+
+
+@pytest.mark.parametrize("index_value", [False, True])
+def test_wkt_to_wkb_srid_index_returning_bool_raises_type_error(index_value):
+    class BoolIndex:
+        def __index__(self):
+            return index_value
+
+    with pytest.raises(ValueError, match="srid must be None, False, or an integer"):
+        m.wkt_to_wkb("POINT (1 2)", srid=BoolIndex())
+
+
+def test_wkt_to_wkb_srid_index_returning_huge_int_raises_range_value_error():
+    class HugeIndex:
+        def __index__(self):
+            return 2**80
+
+    with pytest.raises(ValueError, match="32-bit"):
+        m.wkt_to_wkb("POINT (1 2)", srid=HugeIndex())
+
+
+def test_wkt_to_wkb_srid_index_overflow_calls_index_once():
+    class CountingHugeIndex:
+        def __init__(self):
+            self.calls = 0
+
+        def __index__(self):
+            self.calls += 1
+            return 2**80
+
+    srid = CountingHugeIndex()
+
+    with pytest.raises(ValueError, match="32-bit"):
+        m.wkt_to_wkb("POINT (1 2)", srid=srid)
+
+    assert srid.calls == 1
+
+
+def test_wkt_to_wkb_srid_index_success_calls_index_once():
+    class CountingIndex:
+        def __init__(self):
+            self.calls = 0
+
+        def __index__(self):
+            self.calls += 1
+            return 4326
+
+    srid = CountingIndex()
+
+    result = m.wkt_to_wkb("POINT (1 2)", srid=srid)
+
+    assert m.wkb_to_wkt(result) == "SRID=4326;POINT (1 2)"
+    assert srid.calls == 1
+
+
 def test_wkt_to_wkb_invalid_raises_value_error_with_srid_control():
     with pytest.raises(ValueError, match="invalid WKT"):
         m.wkt_to_wkb("NOT_A_GEOMETRY (1 2)", srid=False)
@@ -1219,6 +1299,23 @@ def test_to_ewkb_header_srid_true_raises_value_error():
 def test_to_ewkb_header_srid_huge_int_raises_range_value_error():
     with pytest.raises(ValueError, match="32-bit"):
         m.to_ewkb_header(m.wkt_to_wkb("POINT (1 2)"), 2**80)
+
+
+def test_to_ewkb_header_srid_index_success_calls_index_once():
+    class CountingIndex:
+        def __init__(self):
+            self.calls = 0
+
+        def __index__(self):
+            self.calls += 1
+            return 4326
+
+    srid = CountingIndex()
+    wkb = m.wkt_to_wkb("POINT (1 2)")
+    result = m.to_ewkb_header(wkb, srid)
+
+    assert m.wkb_to_wkt(result) == "SRID=4326;POINT (1 2)"
+    assert srid.calls == 1
 
 
 def test_to_ewkb_header_big_endian_binary():
