@@ -200,10 +200,10 @@ fn to_hex_wkb(source: Bound<'_, PyAny>, srid: Option<Bound<'_, PyAny>>) -> PyRes
 /// copying; mutating a writable buffer during conversion is unsupported and may
 /// produce invalid or inconsistent results.
 ///
-/// For ``False`` and integer SRIDs, canonical little-endian Point, LineString,
-/// and Polygon EWKB hex or bytes-like input is patched at the top-level header
+/// For ``False`` and integer SRIDs, canonical little-endian EWKB hex or
+/// bytes-like input of any type 1–7 is patched at the top-level header
 /// without scanning the geometry body. Malformed coordinate bodies or trailing
-/// bytes in those simple fast paths can pass through as invalid output bytes.
+/// bytes in those fast paths can pass through as invalid output bytes.
 #[pyfunction]
 #[pyo3(signature = (source, srid=None))]
 fn to_wkb(source: Bound<'_, PyAny>, srid: Option<Bound<'_, PyAny>>) -> PyResult<Vec<u8>> {
@@ -262,11 +262,13 @@ fn to_wkt(
 /// ``source`` may be a bytes-like WKB/EWKB value or a hex-encoded WKB/EWKB
 /// string.  For bytes-like input it is borrowed without copying.
 ///
-/// For little-endian and big-endian EWKB with canonical EWKB flag bits and
-/// any geometry type (Point through GeometryCollection), the SRID is read
-/// directly from the 9-byte header without parsing the geometry body.
-/// ISO-dimensional WKB (type codes ≥ 1000) and other non-canonical inputs
-/// fall back to a full parse to extract the SRID.
+/// For any byte order and any geometry type with only the three canonical EWKB
+/// flag bits (Z, M, SRID) in the high type-word half, the SRID is read
+/// directly from the 9-byte header without parsing the geometry body.  This
+/// covers EWKB types 1–7, plain WKB, and ISO-dimensional WKB (which has no
+/// SRID flag, so ``None`` is returned immediately without a full parse).
+/// Only inputs with unknown flag bits or an invalid byte-order marker fall
+/// back to a full parse.
 #[pyfunction]
 fn wkb_header_srid(source: Bound<'_, PyAny>) -> PyResult<Option<i32>> {
     if let Ok(text) = source.cast::<PyString>() {
@@ -284,11 +286,10 @@ fn wkb_header_srid(source: Bound<'_, PyAny>) -> PyResult<Option<i32>> {
 /// string.  The return type mirrors the input type: binary input returns
 /// ``bytes``, hex-string input returns an uppercase hex string.
 ///
-/// For canonical little-endian EWKB with Point, LineString, or Polygon type
-/// codes, the header is rewritten without parsing the geometry body.  All
-/// other inputs (big-endian, ISO-dimensional, Multi\* and GeometryCollection)
-/// fall back to a full WKB→WKT→WKB round-trip which normalises the
-/// representation.
+/// For canonical little-endian EWKB with any geometry type 1–7 (Point through
+/// GeometryCollection), the header is rewritten without parsing the geometry
+/// body.  Big-endian and ISO-dimensional inputs fall back to a full
+/// WKB→WKT→WKB round-trip which normalises the representation.
 #[pyfunction]
 fn to_wkb_no_srid_header(source: Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
     let py = source.py();
@@ -315,10 +316,10 @@ fn to_wkb_no_srid_header(source: Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
 /// (``SRID_IS_UNKNOWN(x) ((int)x<=0)``), identical to
 /// ``to_wkb_no_srid_header``.
 ///
-/// For canonical little-endian EWKB with Point, LineString, or Polygon type
-/// codes, the header is rewritten without parsing the geometry body.  All
-/// other inputs fall back to a full WKB→WKT→WKB round-trip which normalises
-/// the representation.
+/// For canonical little-endian EWKB with any geometry type 1–7 (Point through
+/// GeometryCollection), the header is rewritten without parsing the geometry
+/// body.  Big-endian and ISO-dimensional inputs fall back to a full
+/// WKB→WKT→WKB round-trip which normalises the representation.
 #[pyfunction]
 fn to_ewkb_header(source: Bound<'_, PyAny>, srid: i32) -> PyResult<Py<PyAny>> {
     let py = source.py();

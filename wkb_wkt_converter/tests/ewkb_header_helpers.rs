@@ -95,9 +95,9 @@ fn header_srid_big_endian_without_srid() {
 }
 
 #[test]
-fn header_srid_iso_point_z_falls_back_returns_none() {
-    // ISO WKB type codes (1001+) have high bits outside EWKB flag range
-    // so the fast path passes them to the full parser which returns None.
+fn header_srid_iso_point_z_returns_none() {
+    // ISO WKB has no SRID flag set (high bits are all zero), so the fast
+    // path returns None immediately without a full parse.
     let bytes = make_iso_point_z();
     assert_eq!(wkb_header_srid(&bytes).unwrap(), None);
 }
@@ -161,7 +161,7 @@ fn strip_srid_big_endian_falls_back_to_full_parse() {
 }
 
 #[test]
-fn strip_srid_multipolygon_falls_back_to_full_parse() {
+fn strip_srid_multipolygon_uses_fast_path() {
     let bytes = wkb("SRID=4326;MULTIPOLYGON (((0 0, 1 0, 1 1, 0 0)))");
     let stripped = wkb_strip_srid(&bytes).unwrap();
     assert_eq!(
@@ -244,7 +244,7 @@ fn set_srid_big_endian_falls_back_to_full_parse() {
 }
 
 #[test]
-fn set_srid_multipolygon_falls_back_to_full_parse() {
+fn set_srid_multipolygon_uses_fast_path() {
     let bytes = wkb("MULTIPOLYGON (((0 0, 1 0, 1 1, 0 0)))");
     let ewkb = wkb_set_srid(&bytes, 4326).unwrap();
     assert_eq!(
