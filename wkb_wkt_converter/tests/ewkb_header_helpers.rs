@@ -310,33 +310,33 @@ fn header_srid_consistent_with_strip() {
 
 // ── wkb_strip_srid_writer ────────────────────────────────────────────────────
 
-fn apply_writer(len: usize, write: WkbWriter<'_>) -> Vec<u8> {
+fn apply_writer(len: usize, writer: WkbWriter<'_>) -> Vec<u8> {
     let mut buf = vec![0u8; len];
-    write(&mut buf);
+    writer.write_into(&mut buf);
     buf
 }
 
 #[test]
 fn strip_writer_has_srid_fast_path() {
     let bytes = wkb("SRID=4326;POINT (1 2)");
-    let (len, write) = wkb_strip_srid_writer(&bytes).unwrap();
-    let out = apply_writer(len, write);
+    let (len, writer) = wkb_strip_srid_writer(&bytes).unwrap();
+    let out = apply_writer(len, writer);
     assert_eq!(wkt_of(&out), "POINT (1 2)");
 }
 
 #[test]
 fn strip_writer_no_srid_fast_path() {
     let bytes = wkb("POINT (1 2)");
-    let (len, write) = wkb_strip_srid_writer(&bytes).unwrap();
-    let out = apply_writer(len, write);
+    let (len, writer) = wkb_strip_srid_writer(&bytes).unwrap();
+    let out = apply_writer(len, writer);
     assert_eq!(out, bytes);
 }
 
 #[test]
 fn strip_writer_multipolygon_fallback() {
     let bytes = wkb("SRID=4326;MULTIPOLYGON (((0 0, 1 0, 1 1, 0 0)))");
-    let (len, write) = wkb_strip_srid_writer(&bytes).unwrap();
-    let out = apply_writer(len, write);
+    let (len, writer) = wkb_strip_srid_writer(&bytes).unwrap();
+    let out = apply_writer(len, writer);
     assert_eq!(wkt_of(&out), "MULTIPOLYGON (((0 0, 1 0, 1 1, 0 0)))");
 }
 
@@ -350,40 +350,40 @@ fn strip_writer_empty_errors() {
 #[test]
 fn set_writer_adds_srid_fast_path() {
     let bytes = wkb("POINT (1 2)");
-    let (len, write) = wkb_set_srid_writer(&bytes, 4326).unwrap();
-    let out = apply_writer(len, write);
+    let (len, writer) = wkb_set_srid_writer(&bytes, 4326).unwrap();
+    let out = apply_writer(len, writer);
     assert_eq!(wkt_of(&out), "SRID=4326;POINT (1 2)");
 }
 
 #[test]
 fn set_writer_replaces_srid_fast_path() {
     let bytes = wkb("SRID=4326;POINT (1 2)");
-    let (len, write) = wkb_set_srid_writer(&bytes, 3857).unwrap();
-    let out = apply_writer(len, write);
+    let (len, writer) = wkb_set_srid_writer(&bytes, 3857).unwrap();
+    let out = apply_writer(len, writer);
     assert_eq!(wkt_of(&out), "SRID=3857;POINT (1 2)");
 }
 
 #[test]
 fn set_writer_noop_when_srid_matches() {
     let bytes = wkb("SRID=4326;POINT (1 2)");
-    let (len, write) = wkb_set_srid_writer(&bytes, 4326).unwrap();
-    let out = apply_writer(len, write);
+    let (len, writer) = wkb_set_srid_writer(&bytes, 4326).unwrap();
+    let out = apply_writer(len, writer);
     assert_eq!(out, bytes);
 }
 
 #[test]
 fn set_writer_negative_srid_strips() {
     let bytes = wkb("SRID=4326;POINT (1 2)");
-    let (len, write) = wkb_set_srid_writer(&bytes, -1).unwrap();
-    let out = apply_writer(len, write);
+    let (len, writer) = wkb_set_srid_writer(&bytes, -1).unwrap();
+    let out = apply_writer(len, writer);
     assert_eq!(wkt_of(&out), "POINT (1 2)");
 }
 
 #[test]
 fn set_writer_multipolygon_fallback() {
     let bytes = wkb("MULTIPOLYGON (((0 0, 1 0, 1 1, 0 0)))");
-    let (len, write) = wkb_set_srid_writer(&bytes, 4326).unwrap();
-    let out = apply_writer(len, write);
+    let (len, writer) = wkb_set_srid_writer(&bytes, 4326).unwrap();
+    let out = apply_writer(len, writer);
     assert_eq!(
         wkt_of(&out),
         "SRID=4326;MULTIPOLYGON (((0 0, 1 0, 1 1, 0 0)))"

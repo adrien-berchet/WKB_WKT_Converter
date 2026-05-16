@@ -368,9 +368,9 @@ fn to_wkb_no_srid_header(source: Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
         return Ok(PyString::new(py, &hex).into_any().unbind());
     }
     with_wkb_buffer(&source, "source", |wkb| {
-        let (len, write) = core::wkb_strip_srid_writer(wkb).map_err(to_py_err)?;
+        let (len, writer) = core::wkb_strip_srid_writer(wkb).map_err(to_py_err)?;
         PyBytes::new_with(py, len, |buf| {
-            write(buf);
+            writer.write_into(buf);
             Ok(())
         })
         .map(|b| b.into_any().unbind())
@@ -404,13 +404,13 @@ fn to_ewkb_header(source: Bound<'_, PyAny>, srid: Bound<'_, PyAny>) -> PyResult<
         return Ok(PyString::new(py, &hex).into_any().unbind());
     }
     with_wkb_buffer(&source, "source", |wkb| {
-        let (len, write) = match srid {
+        let (len, writer) = match srid {
             ExplicitSridMode::Strip => core::wkb_strip_srid_writer(wkb),
             ExplicitSridMode::Set(n) => core::wkb_set_srid_writer(wkb, n),
         }
         .map_err(to_py_err)?;
         PyBytes::new_with(py, len, |buf| {
-            write(buf);
+            writer.write_into(buf);
             Ok(())
         })
         .map(|b| b.into_any().unbind())

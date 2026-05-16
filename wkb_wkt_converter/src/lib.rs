@@ -673,17 +673,62 @@ fn try_read_le_fast_path_header(bytes: &[u8]) -> Option<LeFastPathHeader> {
     })
 }
 
-/// Write closure returned by [`wkb_strip_srid_writer`] and [`wkb_set_srid_writer`].
+enum WkbWriterKind<'a> {
+    Copy(&'a [u8]),
+    Strip {
+        type_bytes: [u8; 4],
+        body: &'a [u8],
+    },
+    Set {
+        type_bytes: [u8; 4],
+        srid_bytes: [u8; 4],
+        body: &'a [u8],
+    },
+    Parsed(Vec<u8>),
+}
+
+/// Write token returned by [`wkb_strip_srid_writer`] and [`wkb_set_srid_writer`].
 ///
 /// Callers receive a `(output_size, WkbWriter)` pair.  Allocate a buffer of
-/// exactly `output_size` bytes and pass it to the closure to fill it.
-pub type WkbWriter<'a> = Box<dyn FnOnce(&mut [u8]) + 'a>;
-
-/// Returns the output byte count and a write closure for stripping the SRID
-/// from a WKB/EWKB byte slice.
+/// exactly `output_size` bytes and pass it to [`WkbWriter::write_into`] to fill it.
 ///
-/// Calling the returned write closure with a mutable slice of exactly the
-/// returned length fills it with the SRID-stripped representation.
+/// Fast-path variants carry only stack-allocated references into the input
+/// slice; no heap allocation is performed unless the slow-path full parse is
+/// required.
+pub struct WkbWriter<'a>(WkbWriterKind<'a>);
+
+impl WkbWriter<'_> {
+    /// Fills `buf` with the SRID-modified WKB bytes.
+    ///
+    /// `buf` must be exactly the length returned alongside this writer.
+    pub fn write_into(self, buf: &mut [u8]) {
+        match self.0 {
+            WkbWriterKind::Copy(src) => buf.copy_from_slice(src),
+            WkbWriterKind::Strip { type_bytes, body } => {
+                buf[0] = 1;
+                buf[1..5].copy_from_slice(&type_bytes);
+                buf[5..].copy_from_slice(body);
+            }
+            WkbWriterKind::Set {
+                type_bytes,
+                srid_bytes,
+                body,
+            } => {
+                buf[0] = 1;
+                buf[1..5].copy_from_slice(&type_bytes);
+                buf[5..9].copy_from_slice(&srid_bytes);
+                buf[9..].copy_from_slice(body);
+            }
+            WkbWriterKind::Parsed(data) => buf.copy_from_slice(&data),
+        }
+    }
+}
+
+/// Returns the output byte count and a writer for stripping the SRID from a
+/// WKB/EWKB byte slice.
+///
+/// Call [`WkbWriter::write_into`] with a mutable slice of exactly the returned
+/// length to fill it with the SRID-stripped representation.
 ///
 /// For canonical little-endian EWKB with Point, LineString, or Polygon type
 /// codes, the header is rewritten without parsing the geometry body.
@@ -697,34 +742,33 @@ pub fn wkb_strip_srid_writer(wkb: &[u8]) -> Result<(usize, WkbWriter<'_>)> {
     if let Some(header) = try_read_le_fast_path_header(wkb) {
         if header.type_u32 & EWKB_SRID == 0 {
             // No SRID — output is identical to input.
-            return Ok((wkb.len(), Box::new(|buf| buf.copy_from_slice(wkb))));
+            return Ok((wkb.len(), WkbWriter(WkbWriterKind::Copy(wkb))));
         }
         // Strip SRID: remove 4-byte SRID field, clear SRID flag.
         let type_bytes = header.canonical_type_without_srid.to_le_bytes();
         return Ok((
             wkb.len() - 4,
-            Box::new(move |buf: &mut [u8]| {
-                buf[0] = 1;
-                buf[1..5].copy_from_slice(&type_bytes);
-                buf[5..].copy_from_slice(&wkb[9..]);
+            WkbWriter(WkbWriterKind::Strip {
+                type_bytes,
+                body: &wkb[9..],
             }),
         ));
     }
     let (wkt, _) = wkb_to_wkt_split_srid(wkb)?;
     let result = wkt_to_wkb::convert(&wkt)?;
     let out_len = result.len();
-    Ok((out_len, Box::new(move |buf| buf.copy_from_slice(&result))))
+    Ok((out_len, WkbWriter(WkbWriterKind::Parsed(result))))
 }
 
-/// Returns the output byte count and a write closure for embedding or
-/// replacing the SRID in a WKB/EWKB byte slice.
+/// Returns the output byte count and a writer for embedding or replacing the
+/// SRID in a WKB/EWKB byte slice.
 ///
 /// SRID values ≤ 0 are treated as unknown per the PostGIS convention
 /// (`SRID_IS_UNKNOWN(x) ((int)x<=0)`) and strip the SRID, identical to
 /// [`wkb_strip_srid_writer`].
 ///
-/// Calling the returned write closure with a mutable slice of exactly the
-/// returned length fills it with the updated representation.
+/// Call [`WkbWriter::write_into`] with a mutable slice of exactly the returned
+/// length to fill it with the updated representation.
 ///
 /// For canonical little-endian EWKB with Point, LineString, or Polygon type
 /// codes, the header is rewritten without parsing the geometry body.
@@ -745,17 +789,16 @@ pub fn wkb_set_srid_writer(wkb: &[u8], srid: i32) -> Result<(usize, WkbWriter<'_
             let stored = i32::from_le_bytes(wkb[5..9].try_into().unwrap());
             if stored == srid {
                 // No-op — SRID already matches.
-                return Ok((wkb.len(), Box::new(|buf| buf.copy_from_slice(wkb))));
+                return Ok((wkb.len(), WkbWriter(WkbWriterKind::Copy(wkb))));
             }
             // Replace SRID in-place (same output length).
             let type_bytes = type_with_srid.to_le_bytes();
             return Ok((
                 wkb.len(),
-                Box::new(move |buf: &mut [u8]| {
-                    buf[0] = 1;
-                    buf[1..5].copy_from_slice(&type_bytes);
-                    buf[5..9].copy_from_slice(&srid_bytes);
-                    buf[9..].copy_from_slice(&wkb[9..]);
+                WkbWriter(WkbWriterKind::Set {
+                    type_bytes,
+                    srid_bytes,
+                    body: &wkb[9..],
                 }),
             ));
         }
@@ -763,18 +806,17 @@ pub fn wkb_set_srid_writer(wkb: &[u8], srid: i32) -> Result<(usize, WkbWriter<'_
         let type_bytes = type_with_srid.to_le_bytes();
         return Ok((
             wkb.len() + 4,
-            Box::new(move |buf: &mut [u8]| {
-                buf[0] = 1;
-                buf[1..5].copy_from_slice(&type_bytes);
-                buf[5..9].copy_from_slice(&srid_bytes);
-                buf[9..].copy_from_slice(&wkb[5..]);
+            WkbWriter(WkbWriterKind::Set {
+                type_bytes,
+                srid_bytes,
+                body: &wkb[5..],
             }),
         ));
     }
     let (wkt, _) = wkb_to_wkt_split_srid(wkb)?;
     let result = wkt_to_wkb::convert_with_forced_srid(&wkt, srid)?;
     let out_len = result.len();
-    Ok((out_len, Box::new(move |buf| buf.copy_from_slice(&result))))
+    Ok((out_len, WkbWriter(WkbWriterKind::Parsed(result))))
 }
 
 /// Strip the SRID from a canonical little-endian EWKB byte slice without
