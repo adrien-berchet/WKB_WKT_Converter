@@ -28,8 +28,9 @@ fn wkt_of(bytes: &[u8]) -> String {
 //   0x000010E6        SRID = 4326 (BE i32)
 //   0x3FF0…  X = 1.0 (BE f64)
 //   0x4000…  Y = 2.0 (BE f64)
-const BE_SRID_POINT_HEX: &str = "002000000100001\
-     0E63FF00000000000004000000000000000";
+const BE_SRID_POINT_HEX: &str = "0020000001000010E63FF00000000000004000000000000000";
+const BE_SRID3_POINT_HEX: &str = "0020000001000000033FF00000000000004000000000000000";
+const BE_SRID4_POINT_HEX: &str = "0020000001000000043FF00000000000004000000000000000";
 
 // Big-endian WKB for POINT (1 2) — no SRID.
 const BE_POINT_HEX: &str = "00000000013FF00000000000004000000000000000";
@@ -181,11 +182,10 @@ fn strip_srid_le_ewkb_linestring() {
 }
 
 #[test]
-fn strip_srid_big_endian_falls_back_to_full_parse() {
+fn strip_srid_big_endian_preserves_header_and_payload() {
     let bytes = from_hex(BE_SRID_POINT_HEX);
     let stripped = wkb_strip_srid(&bytes).unwrap();
-    // fallback normalises to LE WKB
-    assert_eq!(wkt_of(&stripped), "POINT (1 2)");
+    assert_eq!(stripped, from_hex(BE_POINT_HEX));
 }
 
 #[test]
@@ -262,10 +262,17 @@ fn set_srid_linestring() {
 }
 
 #[test]
-fn set_srid_big_endian_falls_back_to_full_parse() {
+fn set_srid_big_endian_adds_srid_preserving_header_and_payload() {
     let bytes = from_hex(BE_POINT_HEX);
     let ewkb = wkb_set_srid(&bytes, 4326).unwrap();
-    assert_eq!(wkt_of(&ewkb), "SRID=4326;POINT (1 2)");
+    assert_eq!(ewkb, from_hex(BE_SRID_POINT_HEX));
+}
+
+#[test]
+fn set_srid_big_endian_replaces_srid_preserving_payload() {
+    let bytes = from_hex(BE_SRID3_POINT_HEX);
+    let ewkb = wkb_set_srid(&bytes, 4).unwrap();
+    assert_eq!(ewkb, from_hex(BE_SRID4_POINT_HEX));
 }
 
 #[test]
@@ -333,6 +340,14 @@ fn strip_writer_no_srid_fast_path() {
 }
 
 #[test]
+fn strip_writer_big_endian_preserves_header_and_payload() {
+    let bytes = from_hex(BE_SRID_POINT_HEX);
+    let (len, writer) = wkb_strip_srid_writer(&bytes).unwrap();
+    let out = apply_writer(len, writer);
+    assert_eq!(out, from_hex(BE_POINT_HEX));
+}
+
+#[test]
 fn strip_writer_multipolygon_fallback() {
     let bytes = wkb("SRID=4326;MULTIPOLYGON (((0 0, 1 0, 1 1, 0 0)))");
     let (len, writer) = wkb_strip_srid_writer(&bytes).unwrap();
@@ -361,6 +376,22 @@ fn set_writer_replaces_srid_fast_path() {
     let (len, writer) = wkb_set_srid_writer(&bytes, 3857).unwrap();
     let out = apply_writer(len, writer);
     assert_eq!(wkt_of(&out), "SRID=3857;POINT (1 2)");
+}
+
+#[test]
+fn set_writer_big_endian_adds_srid_preserving_header_and_payload() {
+    let bytes = from_hex(BE_POINT_HEX);
+    let (len, writer) = wkb_set_srid_writer(&bytes, 4326).unwrap();
+    let out = apply_writer(len, writer);
+    assert_eq!(out, from_hex(BE_SRID_POINT_HEX));
+}
+
+#[test]
+fn set_writer_big_endian_replaces_srid_preserving_payload() {
+    let bytes = from_hex(BE_SRID3_POINT_HEX);
+    let (len, writer) = wkb_set_srid_writer(&bytes, 4).unwrap();
+    let out = apply_writer(len, writer);
+    assert_eq!(out, from_hex(BE_SRID4_POINT_HEX));
 }
 
 #[test]
