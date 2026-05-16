@@ -1,8 +1,9 @@
-from typing import Literal, Optional, Tuple, Union
+from typing import Literal, Optional, Tuple, Union, overload
 
 # Runtime rejects srid=True and integers outside the i32 range. Type checkers
 # cannot precisely express those constraints while still accepting int SRIDs.
 _SridArg = Union[None, Literal[False], int]
+_HeaderSridArg = Union[Literal[False], int]
 # Runtime also accepts other C-contiguous one-byte buffer-protocol objects, but
 # static typing cannot express item size or contiguity for arbitrary exporters.
 _WkbInput = Union[bytes, bytearray, memoryview]
@@ -38,3 +39,28 @@ def to_wkt(
 
 
 def to_hex_wkb(source: _Input, srid: _SridArg = None) -> str: ...
+
+
+def wkb_header_srid(source: _Input) -> Optional[int]: ...
+
+
+@overload
+def to_wkb_no_srid_header(source: str) -> str: ...
+
+
+@overload
+def to_wkb_no_srid_header(source: _WkbInput) -> bytes: ...
+
+
+def to_wkb_no_srid_header(source: _Input) -> Union[bytes, str]: ...
+
+
+@overload
+def to_ewkb_header(source: str, srid: _HeaderSridArg) -> str: ...
+
+
+@overload
+def to_ewkb_header(source: _WkbInput, srid: _HeaderSridArg) -> bytes: ...
+
+
+def to_ewkb_header(source: _Input, srid: _HeaderSridArg) -> Union[bytes, str]: ...

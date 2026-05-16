@@ -91,6 +91,102 @@ def test_wkt_to_wkb_srid_out_of_range_raises_value_error():
         m.wkt_to_wkb("POINT (1 2)", srid=2**40)
 
 
+def test_wkt_to_wkb_srid_huge_int_raises_range_value_error():
+    with pytest.raises(ValueError, match="32-bit"):
+        m.wkt_to_wkb("POINT (1 2)", srid=2**80)
+
+
+def test_wkt_to_wkb_srid_index_error_propagates():
+    class BadIndex:
+        def __index__(self):
+            raise RuntimeError("boom")
+
+    with pytest.raises(RuntimeError, match="boom"):
+        m.wkt_to_wkb("POINT (1 2)", srid=BadIndex())
+
+
+def test_wkt_to_wkb_srid_index_attribute_error_propagates():
+    class BadIndex:
+        def __index__(self):
+            raise AttributeError("boom")
+
+    with pytest.raises(AttributeError, match="boom"):
+        m.wkt_to_wkb("POINT (1 2)", srid=BadIndex())
+
+
+def test_wkt_to_wkb_srid_index_lookup_error_propagates():
+    class BadIndexLookup:
+        def __getattribute__(self, name):
+            if name == "__index__":
+                raise RuntimeError("boom")
+            return super().__getattribute__(name)
+
+    with pytest.raises(RuntimeError, match="boom"):
+        m.wkt_to_wkb("POINT (1 2)", srid=BadIndexLookup())
+
+
+def test_wkt_to_wkb_srid_index_returning_non_int_raises_type_error():
+    class NonIntegerIndex:
+        def __index__(self):
+            return "4326"
+
+    with pytest.raises(ValueError, match="srid must be None, False, or an integer"):
+        m.wkt_to_wkb("POINT (1 2)", srid=NonIntegerIndex())
+
+
+@pytest.mark.parametrize("index_value", [False, True])
+def test_wkt_to_wkb_srid_index_returning_bool_raises_type_error(index_value):
+    class BoolIndex:
+        def __index__(self):
+            return index_value
+
+    with pytest.raises(ValueError, match="srid must be None, False, or an integer"):
+        m.wkt_to_wkb("POINT (1 2)", srid=BoolIndex())
+
+
+def test_wkt_to_wkb_srid_index_returning_huge_int_raises_range_value_error():
+    class HugeIndex:
+        def __index__(self):
+            return 2**80
+
+    with pytest.raises(ValueError, match="32-bit"):
+        m.wkt_to_wkb("POINT (1 2)", srid=HugeIndex())
+
+
+def test_wkt_to_wkb_srid_index_overflow_calls_index_once():
+    class CountingHugeIndex:
+        def __init__(self):
+            self.calls = 0
+
+        def __index__(self):
+            self.calls += 1
+            return 2**80
+
+    srid = CountingHugeIndex()
+
+    with pytest.raises(ValueError, match="32-bit"):
+        m.wkt_to_wkb("POINT (1 2)", srid=srid)
+
+    assert srid.calls == 1
+
+
+def test_wkt_to_wkb_srid_index_success_calls_index_once():
+    class CountingIndex:
+        def __init__(self):
+            self.calls = 0
+
+        def __index__(self):
+            self.calls += 1
+            return 4326
+
+    srid = CountingIndex()
+
+    result = m.wkt_to_wkb("POINT (1 2)", srid=srid)
+
+    assert m.wkb_to_wkt(result) == "SRID=4326;POINT (1 2)"
+    assert srid.calls == 1
+
+
 def test_wkt_to_wkb_invalid_raises_value_error_with_srid_control():
     with pytest.raises(ValueError, match="invalid WKT"):
         m.wkt_to_wkb("NOT_A_GEOMETRY (1 2)", srid=False)
@@ -946,3 +1042,402 @@ def test_to_hex_wkb_srid_true_raises_value_error():
 def test_to_hex_wkb_invalid_raises_value_error():
     with pytest.raises(ValueError):
         m.to_hex_wkb("NOT_A_GEOMETRY (1 2)")
+
+
+# ── wkb_header_srid ──────────────────────────────────────────────────────────
+
+# Big-endian EWKB for SRID=4326;POINT (1 2)
+# 00=BE, 20000001=POINT|SRID (BE), 000010E6=4326 (BE), 3FF0…=1.0, 4000…=2.0
+_BE_SRID_POINT_HEX = "0020000001000010E63FF00000000000004000000000000000"
+# Big-endian plain WKB for POINT (1 2)
+_BE_POINT_HEX = "00000000013FF00000000000004000000000000000"
+
+
+def test_wkb_header_srid_returns_int_from_binary():
+    wkb = m.wkt_to_wkb("SRID=4326;POINT (1 2)")
+    assert m.wkb_header_srid(wkb) == 4326
+
+
+def test_wkb_header_srid_returns_none_when_no_srid():
+    wkb = m.wkt_to_wkb("POINT (1 2)")
+    assert m.wkb_header_srid(wkb) is None
+
+
+def test_wkb_header_srid_accepts_hex_string():
+    hex_wkb = m.wkt_to_hex_wkb("SRID=4326;POINT (1 2)")
+    assert m.wkb_header_srid(hex_wkb) == 4326
+
+
+def test_wkb_header_srid_hex_string_returns_none_when_no_srid():
+    hex_wkb = m.wkt_to_hex_wkb("POINT (1 2)")
+    assert m.wkb_header_srid(hex_wkb) is None
+
+
+def test_wkb_header_srid_big_endian_fast_path():
+    assert m.wkb_header_srid(bytes.fromhex(_BE_SRID_POINT_HEX)) == 4326
+
+
+def test_wkb_header_srid_big_endian_no_srid():
+    assert m.wkb_header_srid(bytes.fromhex(_BE_POINT_HEX)) is None
+
+
+def test_wkb_header_srid_big_endian_hex_string():
+    assert m.wkb_header_srid(_BE_SRID_POINT_HEX) == 4326
+
+
+def test_wkb_header_srid_z_geometry():
+    wkb = m.wkt_to_wkb("SRID=4326;POINT Z (1 2 3)")
+    assert m.wkb_header_srid(wkb) == 4326
+
+
+def test_wkb_header_srid_multipolygon():
+    wkb = m.wkt_to_wkb("SRID=4326;MULTIPOLYGON (((0 0, 1 0, 1 1, 0 0)))")
+    assert m.wkb_header_srid(wkb) == 4326
+
+
+def test_wkb_header_srid_geometry_collection():
+    wkb = m.wkt_to_wkb("SRID=4326;GEOMETRYCOLLECTION (POINT (1 2))")
+    assert m.wkb_header_srid(wkb) == 4326
+
+
+@pytest.mark.parametrize("make_input", [
+    pytest.param(bytearray, id="bytearray"),
+    pytest.param(memoryview, id="memoryview"),
+    pytest.param(lambda wkb: array("B", wkb), id="unsigned-byte-array"),
+])
+def test_wkb_header_srid_accepts_bytes_like(make_input):
+    wkb = m.wkt_to_wkb("SRID=4326;POINT (1 2)")
+    assert m.wkb_header_srid(make_input(wkb)) == 4326
+
+
+def test_wkb_header_srid_iso_point_z_no_srid():
+    import struct
+    # ISO WKB type code 1001 (POINT Z) has no EWKB flag bits, so the fast path
+    # returns None immediately without a full parse.
+    wkb = struct.pack("<BIddd", 1, 1001, 1.0, 2.0, 3.0)
+    assert m.wkb_header_srid(wkb) is None
+
+
+def test_wkb_header_srid_truncated_srid_field_errors():
+    # EWKB with SRID flag but truncated (only 5 bytes, no room for SRID)
+    assert pytest.raises(ValueError, m.wkb_header_srid, bytes.fromhex("0103000020"))
+
+
+def test_wkb_header_srid_empty_bytes_errors():
+    with pytest.raises(ValueError, match="invalid WKB"):
+        m.wkb_header_srid(b"")
+
+
+def test_wkb_header_srid_invalid_hex_string_errors():
+    with pytest.raises(ValueError, match="invalid WKB"):
+        m.wkb_header_srid("ZZ")
+
+
+def test_wkb_header_srid_rejects_non_buffer_input():
+    with pytest.raises(BufferError, match="contiguous one-byte buffer"):
+        m.wkb_header_srid(123)
+
+
+# ── to_wkb_no_srid_header ────────────────────────────────────────────────────
+
+def test_to_wkb_no_srid_header_binary_returns_bytes():
+    wkb = m.wkt_to_wkb("SRID=4326;POINT (1 2)")
+    result = m.to_wkb_no_srid_header(wkb)
+    assert isinstance(result, bytes)
+    assert m.wkb_to_wkt(result) == "POINT (1 2)"
+
+
+def test_to_wkb_no_srid_header_hex_returns_str():
+    hex_wkb = m.wkt_to_hex_wkb("SRID=4326;POINT (1 2)")
+    result = m.to_wkb_no_srid_header(hex_wkb)
+    assert isinstance(result, str)
+    assert m.hex_wkb_to_wkt(result) == "POINT (1 2)"
+
+
+def test_to_wkb_no_srid_header_hex_output_is_uppercase():
+    hex_wkb = m.wkt_to_hex_wkb("SRID=4326;POINT (1 2)")
+    result = m.to_wkb_no_srid_header(hex_wkb)
+    assert result == result.upper()
+
+
+def test_to_wkb_no_srid_header_noop_when_no_srid_binary():
+    wkb = m.wkt_to_wkb("POINT (1 2)")
+    result = m.to_wkb_no_srid_header(wkb)
+    assert isinstance(result, bytes)
+    assert m.wkb_to_wkt(result) == "POINT (1 2)"
+
+
+def test_to_wkb_no_srid_header_noop_when_no_srid_hex():
+    hex_wkb = m.wkt_to_hex_wkb("POINT (1 2)")
+    result = m.to_wkb_no_srid_header(hex_wkb)
+    assert isinstance(result, str)
+    assert m.hex_wkb_to_wkt(result) == "POINT (1 2)"
+
+
+def test_to_wkb_no_srid_header_big_endian_binary():
+    be = bytes.fromhex(_BE_SRID_POINT_HEX)
+    result = m.to_wkb_no_srid_header(be)
+    assert isinstance(result, bytes)
+    assert m.wkb_to_wkt(result) == "POINT (1 2)"
+
+
+def test_to_wkb_no_srid_header_big_endian_hex():
+    result = m.to_wkb_no_srid_header(_BE_SRID_POINT_HEX)
+    assert isinstance(result, str)
+    assert m.hex_wkb_to_wkt(result) == "POINT (1 2)"
+
+
+def test_to_wkb_no_srid_header_multipolygon_binary():
+    wkb = m.wkt_to_wkb("SRID=4326;MULTIPOLYGON (((0 0, 1 0, 1 1, 0 0)))")
+    result = m.to_wkb_no_srid_header(wkb)
+    assert isinstance(result, bytes)
+    assert m.wkb_to_wkt(result) == "MULTIPOLYGON (((0 0, 1 0, 1 1, 0 0)))"
+
+
+def test_to_wkb_no_srid_header_geometry_collection_binary():
+    wkb = m.wkt_to_wkb("SRID=4326;GEOMETRYCOLLECTION (POINT (1 2), LINESTRING (0 0, 1 1))")
+    result = m.to_wkb_no_srid_header(wkb)
+    assert isinstance(result, bytes)
+    assert m.wkb_to_wkt(result) == "GEOMETRYCOLLECTION (POINT (1 2), LINESTRING (0 0, 1 1))"
+
+
+@pytest.mark.parametrize("make_input", [
+    pytest.param(bytearray, id="bytearray"),
+    pytest.param(memoryview, id="memoryview"),
+    pytest.param(lambda wkb: array("B", wkb), id="unsigned-byte-array"),
+])
+def test_to_wkb_no_srid_header_accepts_bytes_like(make_input):
+    wkb = m.wkt_to_wkb("SRID=4326;POINT (1 2)")
+    result = m.to_wkb_no_srid_header(make_input(wkb))
+    assert isinstance(result, bytes)
+    assert m.wkb_to_wkt(result) == "POINT (1 2)"
+
+
+def test_to_wkb_no_srid_header_iso_point_z_binary():
+    import struct
+    wkb = struct.pack("<BIddd", 1, 1001, 1.0, 2.0, 3.0)
+    result = m.to_wkb_no_srid_header(wkb)
+    assert isinstance(result, bytes)
+    assert m.wkb_to_wkt(result) == "POINT Z (1 2 3)"
+
+
+def test_to_wkb_no_srid_header_empty_bytes_errors():
+    with pytest.raises(ValueError, match="invalid WKB"):
+        m.to_wkb_no_srid_header(b"")
+
+
+def test_to_wkb_no_srid_header_invalid_hex_errors():
+    with pytest.raises(ValueError, match="invalid WKB"):
+        m.to_wkb_no_srid_header("ZZ")
+
+
+def test_to_wkb_no_srid_header_rejects_non_buffer_non_str():
+    with pytest.raises(BufferError, match="contiguous one-byte buffer"):
+        m.to_wkb_no_srid_header(123)
+
+
+# ── to_ewkb_header ───────────────────────────────────────────────────────────
+
+def test_to_ewkb_header_binary_adds_srid():
+    wkb = m.wkt_to_wkb("POINT (1 2)")
+    result = m.to_ewkb_header(wkb, 4326)
+    assert isinstance(result, bytes)
+    assert m.wkb_to_wkt(result) == "SRID=4326;POINT (1 2)"
+
+
+def test_to_ewkb_header_hex_adds_srid():
+    hex_wkb = m.wkt_to_hex_wkb("POINT (1 2)")
+    result = m.to_ewkb_header(hex_wkb, 4326)
+    assert isinstance(result, str)
+    assert m.hex_wkb_to_wkt(result) == "SRID=4326;POINT (1 2)"
+
+
+def test_to_ewkb_header_hex_output_is_uppercase():
+    hex_wkb = m.wkt_to_hex_wkb("POINT (1 2)")
+    result = m.to_ewkb_header(hex_wkb, 4326)
+    assert result == result.upper()
+
+
+def test_to_ewkb_header_binary_replaces_existing_srid():
+    wkb = m.wkt_to_wkb("SRID=4326;POINT (1 2)")
+    result = m.to_ewkb_header(wkb, 3857)
+    assert isinstance(result, bytes)
+    assert m.wkb_to_wkt(result) == "SRID=3857;POINT (1 2)"
+
+
+def test_to_ewkb_header_hex_replaces_existing_srid():
+    hex_wkb = m.wkt_to_hex_wkb("SRID=4326;POINT (1 2)")
+    result = m.to_ewkb_header(hex_wkb, 3857)
+    assert isinstance(result, str)
+    assert m.hex_wkb_to_wkt(result) == "SRID=3857;POINT (1 2)"
+
+
+def test_to_ewkb_header_hex_false_strips_srid():
+    hex_wkb = m.wkt_to_hex_wkb("SRID=4326;POINT (1 2)")
+    result = m.to_ewkb_header(hex_wkb, False)
+    assert isinstance(result, str)
+    assert m.hex_wkb_to_wkt(result) == "POINT (1 2)"
+
+
+def test_to_ewkb_header_does_not_double_srid():
+    # Replacing SRID must not embed a second SRID field.
+    wkb = m.wkt_to_wkb("SRID=4326;POINT (1 2)")
+    result = m.to_ewkb_header(wkb, 3857)
+    # Round-trip via wkb_to_wkt_split_srid must return exactly one SRID.
+    wkt, srid = m.wkb_to_wkt_split_srid(result)
+    assert srid == 3857
+    assert wkt == "POINT (1 2)"
+
+
+def test_to_ewkb_header_noop_when_srid_already_matches():
+    wkb = m.wkt_to_wkb("SRID=4326;POINT (1 2)")
+    result = m.to_ewkb_header(wkb, 4326)
+    assert isinstance(result, bytes)
+    assert result == wkb
+
+
+def test_to_ewkb_header_srid_zero_strips_srid():
+    wkb = m.wkt_to_wkb("SRID=4326;POINT (1 2)")
+    result = m.to_ewkb_header(wkb, 0)
+    assert isinstance(result, bytes)
+    assert m.wkb_to_wkt(result) == "POINT (1 2)"
+
+
+def test_to_ewkb_header_srid_negative_strips_srid():
+    wkb = m.wkt_to_wkb("SRID=4326;POINT (1 2)")
+    result = m.to_ewkb_header(wkb, -1)
+    assert isinstance(result, bytes)
+    assert m.wkb_to_wkt(result) == "POINT (1 2)"
+
+
+def test_to_ewkb_header_srid_false_strips_and_matches_helper():
+    wkb = m.wkt_to_wkb("SRID=4326;POINT (1 2)")
+    result = m.to_ewkb_header(wkb, False)
+    assert isinstance(result, bytes)
+    assert result == m.to_wkb_no_srid_header(wkb)
+
+
+def test_to_ewkb_header_srid_true_raises_value_error():
+    with pytest.raises(ValueError, match="srid=True is not valid"):
+        m.to_ewkb_header(m.wkt_to_wkb("POINT (1 2)"), True)
+
+
+def test_to_ewkb_header_srid_huge_int_raises_range_value_error():
+    with pytest.raises(ValueError, match="32-bit"):
+        m.to_ewkb_header(m.wkt_to_wkb("POINT (1 2)"), 2**80)
+
+
+def test_to_ewkb_header_srid_index_success_calls_index_once():
+    class CountingIndex:
+        def __init__(self):
+            self.calls = 0
+
+        def __index__(self):
+            self.calls += 1
+            return 4326
+
+    srid = CountingIndex()
+    wkb = m.wkt_to_wkb("POINT (1 2)")
+    result = m.to_ewkb_header(wkb, srid)
+
+    assert m.wkb_to_wkt(result) == "SRID=4326;POINT (1 2)"
+    assert srid.calls == 1
+
+
+def test_to_ewkb_header_big_endian_binary():
+    be = bytes.fromhex(_BE_POINT_HEX)
+    result = m.to_ewkb_header(be, 4326)
+    assert isinstance(result, bytes)
+    assert m.wkb_to_wkt(result) == "SRID=4326;POINT (1 2)"
+
+
+def test_to_ewkb_header_big_endian_hex():
+    result = m.to_ewkb_header(_BE_POINT_HEX, 4326)
+    assert isinstance(result, str)
+    assert m.hex_wkb_to_wkt(result) == "SRID=4326;POINT (1 2)"
+
+
+def test_to_ewkb_header_multipolygon_binary():
+    wkb = m.wkt_to_wkb("MULTIPOLYGON (((0 0, 1 0, 1 1, 0 0)))")
+    result = m.to_ewkb_header(wkb, 4326)
+    assert isinstance(result, bytes)
+    assert m.wkb_to_wkt(result) == "SRID=4326;MULTIPOLYGON (((0 0, 1 0, 1 1, 0 0)))"
+
+
+def test_to_ewkb_header_geometry_collection_binary():
+    wkb = m.wkt_to_wkb("GEOMETRYCOLLECTION (POINT (1 2), LINESTRING (0 0, 1 1))")
+    result = m.to_ewkb_header(wkb, 4326)
+    assert isinstance(result, bytes)
+    assert m.wkb_to_wkt(result) == "SRID=4326;GEOMETRYCOLLECTION (POINT (1 2), LINESTRING (0 0, 1 1))"
+
+
+@pytest.mark.parametrize("make_input", [
+    pytest.param(bytearray, id="bytearray"),
+    pytest.param(memoryview, id="memoryview"),
+    pytest.param(lambda wkb: array("B", wkb), id="unsigned-byte-array"),
+])
+def test_to_ewkb_header_accepts_bytes_like(make_input):
+    wkb = m.wkt_to_wkb("POINT (1 2)")
+    result = m.to_ewkb_header(make_input(wkb), 4326)
+    assert isinstance(result, bytes)
+    assert m.wkb_to_wkt(result) == "SRID=4326;POINT (1 2)"
+
+
+def test_to_ewkb_header_iso_point_z_binary():
+    import struct
+    wkb = struct.pack("<BIddd", 1, 1001, 1.0, 2.0, 3.0)
+    result = m.to_ewkb_header(wkb, 4326)
+    assert isinstance(result, bytes)
+    assert m.wkb_to_wkt(result) == "SRID=4326;POINT Z (1 2 3)"
+
+
+def test_to_ewkb_header_empty_bytes_errors():
+    with pytest.raises(ValueError, match="invalid WKB"):
+        m.to_ewkb_header(b"", 4326)
+
+
+def test_to_ewkb_header_invalid_hex_errors():
+    with pytest.raises(ValueError, match="invalid WKB"):
+        m.to_ewkb_header("ZZ", 4326)
+
+
+def test_to_ewkb_header_rejects_non_buffer_non_str():
+    with pytest.raises(BufferError, match="contiguous one-byte buffer"):
+        m.to_ewkb_header(123, 4326)
+
+
+# ── cross-function consistency ────────────────────────────────────────────────
+
+def test_header_srid_consistent_with_to_wkb_no_srid_header():
+    wkb = m.wkt_to_wkb("SRID=4326;POINT (1 2)")
+    assert m.wkb_header_srid(wkb) == 4326
+    stripped = m.to_wkb_no_srid_header(wkb)
+    assert m.wkb_header_srid(stripped) is None
+
+
+def test_to_ewkb_header_then_wkb_header_srid_round_trips():
+    wkb = m.wkt_to_wkb("POINT (1 2)")
+    with_srid = m.to_ewkb_header(wkb, 4326)
+    assert m.wkb_header_srid(with_srid) == 4326
+
+
+def test_strip_then_set_hex_round_trip():
+    original_hex = m.wkt_to_hex_wkb("SRID=4326;POINT (1 2)")
+    stripped_hex = m.to_wkb_no_srid_header(original_hex)
+    restored_hex = m.to_ewkb_header(stripped_hex, 4326)
+    assert m.hex_wkb_to_wkt(restored_hex) == "SRID=4326;POINT (1 2)"
+
+
+def test_helpers_semantically_equivalent_to_existing_api():
+    # wkb_header_srid == wkb_to_wkt_split_srid SRID component
+    wkb = m.wkt_to_wkb("SRID=4326;LINESTRING (0 0, 1 1)")
+    _, srid = m.wkb_to_wkt_split_srid(wkb)
+    assert m.wkb_header_srid(wkb) == srid
+
+    # to_wkb_no_srid_header == to_wkb(source, srid=False)
+    stripped = m.to_wkb_no_srid_header(wkb)
+    assert stripped == m.to_wkb(wkb, srid=False)
+
+    # to_ewkb_header(source, 3857) == to_wkb(source, srid=3857)
+    with_srid = m.to_ewkb_header(wkb, 3857)
+    assert with_srid == m.to_wkb(wkb, srid=3857)

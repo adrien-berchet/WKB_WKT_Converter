@@ -104,6 +104,58 @@ pub enum SridMode {
     Set(i32),
 }
 
+/// Reads the SRID embedded in the top-level EWKB header without converting
+/// the full geometry.
+///
+/// For any byte order and any type word whose high bits contain only the
+/// three canonical EWKB flags (Z, M, SRID), the SRID is read directly from
+/// the 9-byte header without parsing the geometry body.  The base type code
+/// (low 16 bits) is **not** validated; the function returns an SRID even for
+/// unrecognised type codes as long as the upper 16 bits are only EWKB flags.
+/// ISO-dimensional type codes such as 1001 carry no EWKB flag bits, so
+/// `None` is returned immediately without a full parse.
+///
+/// Inputs shorter than the 5-byte WKB header, inputs with unknown flag bits
+/// in the high half of the type word, and inputs with an invalid byte-order
+/// marker fall back to a full [`wkb_to_wkt_split_srid`] parse.
+///
+/// Returns `None` when no SRID is embedded in the top-level header, including
+/// raw EWKB SRID values that are non-positive.
+pub fn wkb_header_srid(wkb: &[u8]) -> Result<Option<i32>> {
+    match try_read_ewkb_srid_fast(wkb) {
+        Some(r) => r,
+        None => wkb_to_wkt_split_srid(wkb).map(|(_, srid)| srid),
+    }
+}
+
+/// Strips the top-level SRID flag and SRID field from a WKB/EWKB byte slice.
+///
+/// For canonical little-endian EWKB with Point, LineString, or Polygon type
+/// codes, the header is rewritten without parsing the geometry body; inputs
+/// without an SRID on this fast path are returned byte-for-byte unchanged.
+/// Collection types, big-endian inputs, and ISO-dimensional inputs fall back
+/// to a full WKB→WKT→WKB round-trip which normalises the representation and
+/// preserves the invariant that only the top-level header may carry an SRID;
+/// these inputs may be rewritten even when no SRID was present.
+pub fn wkb_strip_srid(wkb: &[u8]) -> Result<Vec<u8>> {
+    apply_srid_to_wkb(wkb, SridMode::Strip).map(|c| c.into_owned())
+}
+
+/// Embeds or replaces the SRID in a WKB/EWKB byte slice.
+///
+/// SRID values ≤ 0 are treated as unknown per the PostGIS convention
+/// (`SRID_IS_UNKNOWN(x) ((int)x<=0)`) and strip the SRID instead, identical
+/// to [`wkb_strip_srid`].
+///
+/// For canonical little-endian EWKB with Point, LineString, or Polygon type
+/// codes, the header is rewritten without parsing the geometry body.
+/// Collection types, big-endian inputs, and ISO-dimensional inputs fall back
+/// to a full WKB→WKT→WKB round-trip which normalises the representation and
+/// preserves the invariant that only the top-level header may carry an SRID.
+pub fn wkb_set_srid(wkb: &[u8], srid: i32) -> Result<Vec<u8>> {
+    apply_srid_to_wkb(wkb, normalise_srid_mode(SridMode::Set(srid))).map(|c| c.into_owned())
+}
+
 /// Normalises `SridMode::Set(n)` with n ≤ 0 to `SridMode::Strip`.
 ///
 /// Per the PostGIS convention (`SRID_IS_UNKNOWN(x) ((int)x<=0)`), SRID values ≤ 0
@@ -145,11 +197,11 @@ pub enum Input<'a> {
 /// - [`SridMode::Strip`]: always strip the SRID from the output.
 /// - [`SridMode::Set(n)`]: always embed SRID `n`, overriding any SRID in the input.
 ///
-/// **Note on validation:** for canonical little-endian Point, LineString, and
-/// Polygon EWKB hex text or raw WKB input under `Strip` and `Set`, the fast
-/// path rewrites only the top-level EWKB header. Big-endian, ISO-dimensional,
-/// collection, or non-canonical type headers fall back to a full parse
-/// round-trip which normalises the geometry body.
+/// **Note on validation:** for canonical little-endian EWKB hex text or raw
+/// WKB input with Point, LineString, or Polygon type codes under `Strip` and
+/// `Set`, the fast path rewrites only the top-level EWKB header. Collection
+/// types, big-endian inputs, and ISO-dimensional inputs fall back to a full
+/// parse round-trip which normalises the geometry body and nested headers.
 pub fn to_wkb(input: Input<'_>, srid: SridMode) -> Result<Vec<u8>> {
     match input {
         Input::Text(text) => to_wkb_text(text, srid),
@@ -418,11 +470,64 @@ fn strip_ewkt_prefix(wkt: &str) -> &str {
     wkt
 }
 
+/// Fast path for reading the SRID from LE or BE WKB/EWKB headers.
+///
+/// Handles any byte order and any geometry type with only the three canonical
+/// EWKB flag bits (Z, M, SRID) in the high half of the type word.  This
+/// covers standard EWKB (types 1–7), ISO WKB (type codes ≥ 1000 which have
+/// no high bits set and therefore no SRID flag), and plain WKB.
+///
+/// Returns `None` when the slice is shorter than the 5-byte WKB header, when
+/// the high bits contain flags beyond Z/M/SRID (unrecognised format), or when
+/// the byte-order marker is invalid, so the caller can fall back to a full
+/// parse.
+///
+/// Returns `Some(Err(...))` when the SRID flag is set but the slice is too
+/// short to contain the 4-byte SRID field.
+fn try_read_ewkb_srid_fast(wkb: &[u8]) -> Option<Result<Option<i32>>> {
+    if wkb.len() < 5 {
+        return None;
+    }
+    let little_endian = match wkb[0] {
+        1 => true,
+        0 => false,
+        _ => return None,
+    };
+    let type_bytes: [u8; 4] = wkb[1..5].try_into().unwrap();
+    let type_u32 = if little_endian {
+        u32::from_le_bytes(type_bytes)
+    } else {
+        u32::from_be_bytes(type_bytes)
+    };
+    let high_bits = type_u32 & !0x0000_FFFF;
+    if high_bits & !(EWKB_Z | EWKB_M | EWKB_SRID) != 0 {
+        return None; // Unknown flag bits — format unrecognised, fall back
+    }
+    // If the SRID flag is not set there is no SRID in this header.  This
+    // covers plain WKB, EWKB without SRID, and ISO WKB (no EWKB flags at all).
+    if type_u32 & EWKB_SRID == 0 {
+        return Some(Ok(None));
+    }
+    if wkb.len() < 9 {
+        return Some(Err(Error::InvalidWkb(
+            "EWKB header has SRID flag but is too short to contain the SRID field".into(),
+        )));
+    }
+    let srid_bytes: [u8; 4] = wkb[5..9].try_into().unwrap();
+    let srid = if little_endian {
+        i32::from_le_bytes(srid_bytes)
+    } else {
+        i32::from_be_bytes(srid_bytes)
+    };
+    Some(Ok((srid > 0).then_some(srid)))
+}
+
 /// Encode bytes as an uppercase hexadecimal string using a lookup table.
 ///
 /// This is substantially faster than the `write!(s, "{b:02X}")` approach
 /// because it avoids invoking the format machinery for every byte.
-fn encode_hex(bytes: &[u8]) -> String {
+#[doc(hidden)]
+pub fn encode_hex(bytes: &[u8]) -> String {
     const HEX: &[u8; 16] = b"0123456789ABCDEF";
     let mut out = vec![0u8; bytes.len().saturating_mul(2)];
     for (chunk, &b) in out.chunks_exact_mut(2).zip(bytes) {
@@ -512,7 +617,8 @@ fn try_normalize_hex_uppercase(s: &str) -> Option<String> {
 
 /// Decode a hex string with detailed position-aware error messages.
 /// Used by [`hex_wkb_to_wkt`] where the caller knows the input must be hex.
-fn decode_hex(hex: &str) -> Result<Vec<u8>> {
+#[doc(hidden)]
+pub fn decode_hex(hex: &str) -> Result<Vec<u8>> {
     let bytes = hex.as_bytes();
     if bytes.is_empty() {
         return Err(Error::InvalidWkb("empty hex string".into()));
@@ -570,7 +676,162 @@ fn try_read_le_fast_path_header(bytes: &[u8]) -> Option<LeFastPathHeader> {
     })
 }
 
-/// Strip the SRID from a canonical little-endian simple EWKB byte slice without
+enum WkbWriterKind<'a> {
+    Copy(&'a [u8]),
+    Strip {
+        type_bytes: [u8; 4],
+        body: &'a [u8],
+    },
+    Set {
+        type_bytes: [u8; 4],
+        srid_bytes: [u8; 4],
+        body: &'a [u8],
+    },
+    Parsed(Vec<u8>),
+}
+
+/// Write token returned by [`wkb_strip_srid_writer`] and [`wkb_set_srid_writer`].
+///
+/// Callers receive a `(output_size, WkbWriter)` pair.  Allocate a buffer of
+/// exactly `output_size` bytes and pass it to [`WkbWriter::write_into`] to fill it.
+///
+/// Fast-path variants carry only stack-allocated references into the input
+/// slice; no heap allocation is performed unless the slow-path full parse is
+/// required.
+pub struct WkbWriter<'a>(WkbWriterKind<'a>);
+
+impl WkbWriter<'_> {
+    /// Fills `buf` with the SRID-modified WKB bytes.
+    ///
+    /// `buf` must be exactly the length returned alongside this writer;
+    /// passing a buffer of the wrong size panics.
+    pub fn write_into(self, buf: &mut [u8]) {
+        match self.0 {
+            WkbWriterKind::Copy(src) => {
+                debug_assert_eq!(buf.len(), src.len(), "WkbWriter::write_into: buffer length does not match the size returned by the writer");
+                buf.copy_from_slice(src);
+            }
+            WkbWriterKind::Strip { type_bytes, body } => {
+                debug_assert_eq!(buf.len(), 5 + body.len(), "WkbWriter::write_into: buffer length does not match the size returned by the writer");
+                buf[0] = 1;
+                buf[1..5].copy_from_slice(&type_bytes);
+                buf[5..].copy_from_slice(body);
+            }
+            WkbWriterKind::Set {
+                type_bytes,
+                srid_bytes,
+                body,
+            } => {
+                debug_assert_eq!(buf.len(), 9 + body.len(), "WkbWriter::write_into: buffer length does not match the size returned by the writer");
+                buf[0] = 1;
+                buf[1..5].copy_from_slice(&type_bytes);
+                buf[5..9].copy_from_slice(&srid_bytes);
+                buf[9..].copy_from_slice(body);
+            }
+            WkbWriterKind::Parsed(data) => {
+                debug_assert_eq!(buf.len(), data.len(), "WkbWriter::write_into: buffer length does not match the size returned by the writer");
+                buf.copy_from_slice(&data);
+            }
+        }
+    }
+}
+
+/// Returns the output byte count and a writer for stripping the SRID from a
+/// WKB/EWKB byte slice.
+///
+/// Call [`WkbWriter::write_into`] with a mutable slice of exactly the returned
+/// length to fill it with the SRID-stripped representation.
+///
+/// For canonical little-endian EWKB with Point, LineString, or Polygon type
+/// codes, the header is rewritten without parsing the geometry body.
+/// Collection types, big-endian inputs, and ISO-dimensional inputs fall back
+/// to a full WKB→WKT→WKB round-trip.
+///
+/// Prefer [`wkb_strip_srid`] when a `Vec<u8>` is convenient; use this
+/// function to write directly into a caller-supplied buffer (e.g. a Python
+/// `bytes` object via `PyBytes::new_with`).
+pub fn wkb_strip_srid_writer(wkb: &[u8]) -> Result<(usize, WkbWriter<'_>)> {
+    if let Some(header) = try_read_le_fast_path_header(wkb) {
+        if header.type_u32 & EWKB_SRID == 0 {
+            // No SRID — output is identical to input.
+            return Ok((wkb.len(), WkbWriter(WkbWriterKind::Copy(wkb))));
+        }
+        // Strip SRID: remove 4-byte SRID field, clear SRID flag.
+        let type_bytes = header.canonical_type_without_srid.to_le_bytes();
+        return Ok((
+            wkb.len() - 4,
+            WkbWriter(WkbWriterKind::Strip {
+                type_bytes,
+                body: &wkb[9..],
+            }),
+        ));
+    }
+    let (wkt, _) = wkb_to_wkt_split_srid(wkb)?;
+    let result = wkt_to_wkb::convert(&wkt)?;
+    let out_len = result.len();
+    Ok((out_len, WkbWriter(WkbWriterKind::Parsed(result))))
+}
+
+/// Returns the output byte count and a writer for embedding or replacing the
+/// SRID in a WKB/EWKB byte slice.
+///
+/// SRID values ≤ 0 are treated as unknown per the PostGIS convention
+/// (`SRID_IS_UNKNOWN(x) ((int)x<=0)`) and strip the SRID, identical to
+/// [`wkb_strip_srid_writer`].
+///
+/// Call [`WkbWriter::write_into`] with a mutable slice of exactly the returned
+/// length to fill it with the updated representation.
+///
+/// For canonical little-endian EWKB with Point, LineString, or Polygon type
+/// codes, the header is rewritten without parsing the geometry body.
+/// Collection types, big-endian inputs, and ISO-dimensional inputs fall back
+/// to a full WKB→WKT→WKB round-trip.
+///
+/// Prefer [`wkb_set_srid`] when a `Vec<u8>` is convenient; use this
+/// function to write directly into a caller-supplied buffer.
+pub fn wkb_set_srid_writer(wkb: &[u8], srid: i32) -> Result<(usize, WkbWriter<'_>)> {
+    if srid <= 0 {
+        return wkb_strip_srid_writer(wkb);
+    }
+    if let Some(header) = try_read_le_fast_path_header(wkb) {
+        let type_with_srid = header.canonical_type_without_srid | EWKB_SRID;
+        let srid_bytes = srid.to_le_bytes();
+        if header.type_u32 & EWKB_SRID != 0 {
+            // SRID flag already set.
+            let stored = i32::from_le_bytes(wkb[5..9].try_into().unwrap());
+            if stored == srid {
+                // No-op — SRID already matches.
+                return Ok((wkb.len(), WkbWriter(WkbWriterKind::Copy(wkb))));
+            }
+            // Replace SRID in-place (same output length).
+            let type_bytes = type_with_srid.to_le_bytes();
+            return Ok((
+                wkb.len(),
+                WkbWriter(WkbWriterKind::Set {
+                    type_bytes,
+                    srid_bytes,
+                    body: &wkb[9..],
+                }),
+            ));
+        }
+        // No SRID yet — insert 4-byte SRID field, set SRID flag.
+        let type_bytes = type_with_srid.to_le_bytes();
+        return Ok((
+            wkb.len() + 4,
+            WkbWriter(WkbWriterKind::Set {
+                type_bytes,
+                srid_bytes,
+                body: &wkb[5..],
+            }),
+        ));
+    }
+    let (wkt, _) = wkb_to_wkt_split_srid(wkb)?;
+    let result = wkt_to_wkb::convert_with_forced_srid(&wkt, srid)?;
+    let out_len = result.len();
+    Ok((out_len, WkbWriter(WkbWriterKind::Parsed(result))))
+}
+
+/// Strip the SRID from a canonical little-endian EWKB byte slice without
 /// parsing the geometry body.
 ///
 /// Returns `None` when the bytes are not recognisable as little-endian EWKB
@@ -589,7 +850,7 @@ fn try_strip_srid_from_le_wkb(bytes: &[u8]) -> Option<Cow<'_, [u8]>> {
     Some(Cow::Owned(out))
 }
 
-/// Inject or replace the SRID in a canonical little-endian simple EWKB byte slice
+/// Inject or replace the SRID in a canonical little-endian EWKB byte slice
 /// without parsing the geometry body.
 ///
 /// Returns `None` when the bytes are not recognisable as little-endian EWKB

@@ -935,24 +935,30 @@ fn set_iso_xyz_point_normalizes_to_ewkb_with_srid() {
 }
 
 #[test]
-fn strip_geometry_collection_removes_nested_srids() {
+fn strip_geometry_collection_fallback_scrubs_nested_srids() {
     const NESTED_SRID_GC: &str = concat!(
         "0107000020E6100000", // GC, SRID=4326
         "01000000",           // 1 sub-geometry
         "01",                 // sub-geom LE marker
-        "01000020",           // POINT with SRID flag
-        "E6100000",           // SRID=4326
+        "01000020",           // POINT with SRID flag (malformed — sub-geometries
+        "E6100000",           //   shouldn't carry SRIDs per EWKB spec)
         "000000000000F03F",   // x=1.0
         "0000000000000040",   // y=2.0
     );
     let wkb = to_wkb(NESTED_SRID_GC, SridMode::Strip).unwrap();
-    // Full round-trip strips both the outer SRID and the inner nested SRID.
+    // Collection types now fall back to the full parse/round-trip path,
+    // which removes SRIDs from nested sub-geometries to preserve the repo
+    // invariant that only the top-level header may carry an SRID.
     assert_eq!(
         wkb_to_wkt(&wkb).unwrap(),
         "GEOMETRYCOLLECTION (POINT (1 2))"
     );
     assert_eq!(u32::from_le_bytes(wkb[1..5].try_into().unwrap()), 7);
-    assert_eq!(u32::from_le_bytes(wkb[10..14].try_into().unwrap()), 1);
+    // Sub-geometry type word is normalized to plain POINT.
+    assert_eq!(
+        u32::from_le_bytes(wkb[10..14].try_into().unwrap()),
+        0x0000_0001
+    );
 }
 
 // ── Fix 2: Invalid SRID prefix errors under SridMode::Set (WKT path) ──────────
