@@ -673,6 +673,12 @@ fn try_read_le_fast_path_header(bytes: &[u8]) -> Option<LeFastPathHeader> {
     })
 }
 
+/// Write closure returned by [`wkb_strip_srid_writer`] and [`wkb_set_srid_writer`].
+///
+/// Callers receive a `(output_size, WkbWriter)` pair.  Allocate a buffer of
+/// exactly `output_size` bytes and pass it to the closure to fill it.
+pub type WkbWriter<'a> = Box<dyn FnOnce(&mut [u8]) + 'a>;
+
 /// Returns the output byte count and a write closure for stripping the SRID
 /// from a WKB/EWKB byte slice.
 ///
@@ -687,7 +693,7 @@ fn try_read_le_fast_path_header(bytes: &[u8]) -> Option<LeFastPathHeader> {
 /// Prefer [`wkb_strip_srid`] when a `Vec<u8>` is convenient; use this
 /// function to write directly into a caller-supplied buffer (e.g. a Python
 /// `bytes` object via `PyBytes::new_with`).
-pub fn wkb_strip_srid_writer(wkb: &[u8]) -> Result<(usize, Box<dyn FnOnce(&mut [u8]) + '_>)> {
+pub fn wkb_strip_srid_writer(wkb: &[u8]) -> Result<(usize, WkbWriter<'_>)> {
     if let Some(header) = try_read_le_fast_path_header(wkb) {
         if header.type_u32 & EWKB_SRID == 0 {
             // No SRID — output is identical to input.
@@ -727,10 +733,7 @@ pub fn wkb_strip_srid_writer(wkb: &[u8]) -> Result<(usize, Box<dyn FnOnce(&mut [
 ///
 /// Prefer [`wkb_set_srid`] when a `Vec<u8>` is convenient; use this
 /// function to write directly into a caller-supplied buffer.
-pub fn wkb_set_srid_writer(
-    wkb: &[u8],
-    srid: i32,
-) -> Result<(usize, Box<dyn FnOnce(&mut [u8]) + '_>)> {
+pub fn wkb_set_srid_writer(wkb: &[u8], srid: i32) -> Result<(usize, WkbWriter<'_>)> {
     if srid <= 0 {
         return wkb_strip_srid_writer(wkb);
     }

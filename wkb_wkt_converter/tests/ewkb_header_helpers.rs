@@ -1,7 +1,7 @@
 /// Tests for wkb_header_srid / wkb_strip_srid / wkb_set_srid / writers.
 use wkb_wkt_converter::{
     wkb_header_srid, wkb_set_srid, wkb_set_srid_writer, wkb_strip_srid, wkb_strip_srid_writer,
-    wkb_to_wkt, wkt_to_wkb, SridMode,
+    wkb_to_wkt, wkt_to_wkb, SridMode, WkbWriter,
 };
 
 // ── shared test helpers ───────────────────────────────────────────────────────
@@ -310,7 +310,7 @@ fn header_srid_consistent_with_strip() {
 
 // ── wkb_strip_srid_writer ────────────────────────────────────────────────────
 
-fn apply_writer<'a>(len: usize, write: Box<dyn FnOnce(&mut [u8]) + 'a>) -> Vec<u8> {
+fn apply_writer(len: usize, write: WkbWriter<'_>) -> Vec<u8> {
     let mut buf = vec![0u8; len];
     write(&mut buf);
     buf
