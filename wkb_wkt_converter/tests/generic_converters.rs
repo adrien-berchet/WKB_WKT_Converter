@@ -9,6 +9,9 @@ use wkb_wkt_converter::{
 // X=1.0 (BE f64), Y=2.0 (BE f64).
 const BE_POINT_HEX: &str = "00000000013FF00000000000004000000000000000";
 
+// Big-endian EWKB for SRID=4326;POINT (1 2).
+const BE_SRID_POINT_HEX: &str = "0020000001000010E63FF00000000000004000000000000000";
+
 // Little-endian WKB with the EWKB SRID flag set in the type word but only 5
 // bytes total (no room for the 4-byte SRID value).  Used to exercise the
 // malformed-WKB fallback path.
@@ -550,10 +553,10 @@ fn hex_wkb_strip_from_hex_removes_srid_header() {
 }
 
 #[test]
-fn hex_wkb_strip_from_big_endian_hex_falls_back_to_round_trip() {
+fn hex_wkb_strip_from_big_endian_hex_preserves_byte_order() {
     assert_eq!(
         to_hex_wkb(BE_POINT_HEX, SridMode::Strip).unwrap(),
-        POINT_HEX
+        BE_POINT_HEX
     );
 }
 
@@ -581,10 +584,10 @@ fn hex_wkb_set_from_hex_noops_when_srid_already_matches() {
 }
 
 #[test]
-fn hex_wkb_set_from_big_endian_hex_falls_back_to_round_trip() {
+fn hex_wkb_set_from_big_endian_hex_preserves_byte_order() {
     assert_eq!(
         to_hex_wkb(BE_POINT_HEX, SridMode::Set(4326)).unwrap(),
-        SRID_POINT_HEX
+        BE_SRID_POINT_HEX
     );
 }
 
@@ -617,7 +620,26 @@ fn hex_wkb_from_wkb_input_strip_and_set_use_raw_bytes() {
     );
 }
 
-// ── try_strip_srid_from_le_wkb / try_set_srid_in_le_wkb coverage ─────────────
+#[test]
+fn hex_wkb_from_wkb_input_strip_and_set_collection_fallbacks() {
+    let collection = "MULTIPOLYGON (((0 0, 1 0, 1 1, 0 0)))";
+
+    let with_srid = wkt_to_wkb(&format!("SRID=4326;{collection}")).unwrap();
+    let stripped_hex = to_hex_wkb_bytes(&with_srid, SridMode::Strip).unwrap();
+    assert_eq!(
+        wkb_to_wkt(&hex::decode(stripped_hex).unwrap()).unwrap(),
+        collection
+    );
+
+    let plain = wkt_to_wkb(collection).unwrap();
+    let set_hex = to_hex_wkb_bytes(&plain, SridMode::Set(4326)).unwrap();
+    assert_eq!(
+        wkb_to_wkt(&hex::decode(set_hex).unwrap()).unwrap(),
+        format!("SRID=4326;{collection}")
+    );
+}
+
+// ── simple WKB/EWKB header fast-path coverage ────────────────────────────────
 
 #[test]
 fn wkb_strip_noop_when_no_srid_in_hex_wkb() {
@@ -628,44 +650,44 @@ fn wkb_strip_noop_when_no_srid_in_hex_wkb() {
 }
 
 #[test]
-fn wkb_strip_big_endian_hex_falls_back_to_round_trip() {
-    // Big-endian WKB: try_strip_srid_from_le_wkb returns None, so to_wkb
-    // falls back to the full WKB→WKT→WKB round-trip which normalises to LE.
+fn wkb_strip_big_endian_hex_preserves_byte_order() {
     let wkb = to_wkb(BE_POINT_HEX, SridMode::Strip).unwrap();
-    assert_eq!(wkb_to_wkt(&wkb).unwrap(), "POINT (1 2)");
+    assert_eq!(wkb, hex::decode(BE_POINT_HEX).unwrap());
 }
 
 #[test]
-fn wkb_input_big_endian_falls_back_to_round_trip_for_strip_and_set() {
+fn wkb_input_big_endian_uses_header_fast_path_for_strip_and_set() {
     let be_wkb = hex::decode(BE_POINT_HEX).unwrap();
 
     let stripped = to_wkb_bytes(&be_wkb, SridMode::Strip).unwrap();
-    assert_eq!(wkb_to_wkt(&stripped).unwrap(), "POINT (1 2)");
-    assert_eq!(stripped[0], 0x01);
+    assert_eq!(stripped, be_wkb);
 
     let set = to_wkb_bytes(&be_wkb, SridMode::Set(4326)).unwrap();
-    assert_eq!(wkb_to_wkt(&set).unwrap(), "SRID=4326;POINT (1 2)");
-    assert_eq!(set[0], 0x01);
+    assert_eq!(set, hex::decode(BE_SRID_POINT_HEX).unwrap());
+}
+
+#[test]
+fn wkb_input_invalid_byte_order_falls_back_and_errors() {
+    assert!(to_wkb_bytes(&[0x99, 0x01, 0x00, 0x00, 0x00], SridMode::Strip).is_err());
 }
 
 #[test]
 fn wkb_strip_malformed_short_srid_errors() {
     // LE WKB with SRID flag but only 5 bytes (no room for 4-byte SRID value):
-    // try_strip_srid_from_le_wkb returns None, fallback round-trip fails.
+    // The simple fast path rejects this header, so fallback round-trip fails.
     assert!(to_wkb(LE_SHORT_SRID_HEX, SridMode::Strip).is_err());
 }
 
 #[test]
-fn wkb_set_big_endian_hex_falls_back_to_round_trip() {
-    // Big-endian WKB: try_set_srid_in_le_wkb returns None, fallback works.
+fn wkb_set_big_endian_hex_preserves_byte_order() {
     let wkb = to_wkb(BE_POINT_HEX, SridMode::Set(4326)).unwrap();
-    assert_eq!(wkb_to_wkt(&wkb).unwrap(), "SRID=4326;POINT (1 2)");
+    assert_eq!(wkb, hex::decode(BE_SRID_POINT_HEX).unwrap());
 }
 
 #[test]
 fn wkb_set_malformed_short_srid_errors() {
-    // LE WKB with SRID flag but too short: try_set_srid_in_le_wkb returns None,
-    // fallback round-trip fails.
+    // LE WKB with SRID flag but too short: the simple fast path rejects this
+    // header, so fallback round-trip fails.
     assert!(to_wkb(LE_SHORT_SRID_HEX, SridMode::Set(4326)).is_err());
 }
 

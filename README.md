@@ -13,7 +13,8 @@ Exposes both a Rust API and Python bindings (via PyO3/maturin).
 - All coordinate dimensions: XY, XYZ, M, ZM
 - Both **EWKB** (PostGIS flag-bit encoding) and **ISO WKB** (type+1000 offset encoding) as input
 - **SRID** preservation (EWKT ↔ EWKB); option to split SRID from geometry
-- Big-endian and little-endian WKB input; little-endian EWKB output
+- Big-endian and little-endian WKB input; little-endian EWKB output for full
+  conversions, with simple header rewrites preserving input byte order
 - `EMPTY` geometry support
 - Per-member `EMPTY` support inside `MULTI*` geometries
 - Hex WKB convenience helpers
@@ -96,12 +97,12 @@ Validation notes:
 - Direct WKB-to-WKT entry points still reject structurally invalid WKB such as
   truncation, unsupported type codes, excessive nesting, and trailing top-level
   bytes.
-- For canonical little-endian Point, LineString, and Polygon EWKB hex or raw
-  WKB input, `to_wkb(input, SridMode::Strip | SridMode::Set(_))` and the
-  equivalent `to_hex_wkb` paths patch only the top-level header. Malformed
+- For simple Point, LineString, and Polygon EWKB/WKB hex or raw WKB input in
+  either byte order, `to_wkb(input, SridMode::Strip | SridMode::Set(_))` and
+  the equivalent `to_hex_wkb` paths patch only the top-level header. Malformed
   coordinate bodies or trailing bytes in those simple fast paths can pass
-  through as invalid output. Big-endian, ISO-dimensional, collection, and
-  non-canonical type headers fall back to a full normalising round-trip.
+  through as invalid output. ISO-dimensional, collection, and non-canonical
+  type headers fall back to a full normalising round-trip.
 - `to_wkb(Input::Text(hex), SridMode::Auto)` returns decoded bytes without WKB
   structure validation, and `to_hex_wkb(Input::Text(hex), SridMode::Auto)`
   validates and uppercases the hex text only. `Input::Wkb` under
@@ -262,11 +263,12 @@ handling in the output:
 | `int` | Always embed this SRID, overriding whatever the input contains |
 
 Validation behavior matches the Rust API: WKT coordinates must be finite, while
-WKB coordinate payloads are treated as trusted-valid. Simple little-endian EWKB
-hex or bytes-like inputs under `srid=False` or an integer SRID are patched at
-the top-level header without scanning the body, so malformed bodies or trailing
-bytes can pass through as invalid output. `to_wkb(source, srid=None)` returns
-decoded/raw bytes without WKB structure validation, and
+WKB coordinate payloads are treated as trusted-valid. Simple Point,
+LineString, and Polygon EWKB/WKB hex or bytes-like inputs in either byte order
+under `srid=False` or an integer SRID are patched at the top-level header
+without scanning the body, so malformed bodies or trailing bytes can pass
+through as invalid output. `to_wkb(source, srid=None)` returns decoded/raw
+bytes without WKB structure validation, and
 `to_hex_wkb(source, srid=None)` validates and uppercases hex text or hex-encodes
 bytes-like input without WKB structure validation.
 

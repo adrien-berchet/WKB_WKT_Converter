@@ -263,8 +263,8 @@ fn to_hex_wkb(source: Bound<'_, PyAny>, srid: Option<Bound<'_, PyAny>>) -> PyRes
 /// copying; mutating a writable buffer during conversion is unsupported and may
 /// produce invalid or inconsistent results.
 ///
-/// For ``False`` and integer SRIDs, canonical little-endian Point,
-/// LineString, and Polygon EWKB hex or bytes-like input is patched at the
+/// For ``False`` and integer SRIDs, simple Point, LineString, and Polygon
+/// EWKB/WKB hex or bytes-like input in either byte order is patched at the
 /// top-level header without scanning the geometry body. Malformed coordinate
 /// bodies or trailing bytes in those simple fast paths can pass through as
 /// invalid output bytes.
@@ -357,10 +357,10 @@ fn wkb_header_srid(source: Bound<'_, PyAny>) -> PyResult<Option<i32>> {
 /// string.  The return type mirrors the input type: binary input returns
 /// ``bytes``, hex-string input returns an uppercase hex string.
 ///
-/// For canonical little-endian EWKB with Point, LineString, or Polygon type
-/// codes, the header is rewritten without parsing the geometry body.
-/// Collection types, big-endian inputs, and ISO-dimensional inputs fall back
-/// to a full WKB→WKT→WKB round-trip which normalises the representation.
+/// For simple Point, LineString, or Polygon EWKB/WKB headers in either byte
+/// order, the header is rewritten without parsing the geometry body.
+/// Collection types, ISO-dimensional inputs, and non-canonical headers fall
+/// back to a full WKB→WKT→WKB round-trip which normalises the representation.
 #[pyfunction]
 fn to_wkb_no_srid_header(source: Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
     let py = source.py();
@@ -392,10 +392,10 @@ fn to_wkb_no_srid_header(source: Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
 /// the PostGIS convention (``SRID_IS_UNKNOWN(x) ((int)x<=0)``), identical to
 /// ``to_wkb_no_srid_header``.
 ///
-/// For canonical little-endian EWKB with Point, LineString, or Polygon type
-/// codes, the header is rewritten without parsing the geometry body.
-/// Collection types, big-endian inputs, and ISO-dimensional inputs fall back
-/// to a full WKB→WKT→WKB round-trip which normalises the representation.
+/// For simple Point, LineString, or Polygon EWKB/WKB headers in either byte
+/// order, the header is rewritten without parsing the geometry body.
+/// Collection types, ISO-dimensional inputs, and non-canonical headers fall
+/// back to a full WKB→WKT→WKB round-trip which normalises the representation.
 #[pyfunction]
 fn to_ewkb_header(source: Bound<'_, PyAny>, srid: Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
     let py = source.py();

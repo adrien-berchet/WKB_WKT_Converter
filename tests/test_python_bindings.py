@@ -1049,6 +1049,8 @@ def test_to_hex_wkb_invalid_raises_value_error():
 # Big-endian EWKB for SRID=4326;POINT (1 2)
 # 00=BE, 20000001=POINT|SRID (BE), 000010E6=4326 (BE), 3FF0…=1.0, 4000…=2.0
 _BE_SRID_POINT_HEX = "0020000001000010E63FF00000000000004000000000000000"
+_BE_SRID3_POINT_HEX = "0020000001000000033FF00000000000004000000000000000"
+_BE_SRID4_POINT_HEX = "0020000001000000043FF00000000000004000000000000000"
 # Big-endian plain WKB for POINT (1 2)
 _BE_POINT_HEX = "00000000013FF00000000000004000000000000000"
 
@@ -1178,13 +1180,13 @@ def test_to_wkb_no_srid_header_big_endian_binary():
     be = bytes.fromhex(_BE_SRID_POINT_HEX)
     result = m.to_wkb_no_srid_header(be)
     assert isinstance(result, bytes)
-    assert m.wkb_to_wkt(result) == "POINT (1 2)"
+    assert result == bytes.fromhex(_BE_POINT_HEX)
 
 
 def test_to_wkb_no_srid_header_big_endian_hex():
     result = m.to_wkb_no_srid_header(_BE_SRID_POINT_HEX)
     assert isinstance(result, str)
-    assert m.hex_wkb_to_wkt(result) == "POINT (1 2)"
+    assert result == _BE_POINT_HEX
 
 
 def test_to_wkb_no_srid_header_multipolygon_binary():
@@ -1348,13 +1350,23 @@ def test_to_ewkb_header_big_endian_binary():
     be = bytes.fromhex(_BE_POINT_HEX)
     result = m.to_ewkb_header(be, 4326)
     assert isinstance(result, bytes)
-    assert m.wkb_to_wkt(result) == "SRID=4326;POINT (1 2)"
+    assert result == bytes.fromhex(_BE_SRID_POINT_HEX)
 
 
 def test_to_ewkb_header_big_endian_hex():
     result = m.to_ewkb_header(_BE_POINT_HEX, 4326)
     assert isinstance(result, str)
-    assert m.hex_wkb_to_wkt(result) == "SRID=4326;POINT (1 2)"
+    assert result == _BE_SRID_POINT_HEX
+
+
+def test_to_ewkb_header_big_endian_replaces_srid_header_only():
+    result = m.to_ewkb_header(bytes.fromhex(_BE_SRID3_POINT_HEX), 4)
+    assert isinstance(result, bytes)
+    assert result == bytes.fromhex(_BE_SRID4_POINT_HEX)
+
+    hex_result = m.to_ewkb_header(_BE_SRID3_POINT_HEX, 4)
+    assert isinstance(hex_result, str)
+    assert hex_result == _BE_SRID4_POINT_HEX
 
 
 def test_to_ewkb_header_multipolygon_binary():
