@@ -673,32 +673,105 @@ fn try_read_le_fast_path_header(bytes: &[u8]) -> Option<LeFastPathHeader> {
     })
 }
 
-/// Information returned by [`le_ewkb_fast_path`] when the LE fast path applies.
-#[doc(hidden)]
-pub struct LeFastPathInfo {
-    /// Whether the SRID flag is set in the type word.
-    pub has_srid: bool,
-    /// The SRID value stored in the header when `has_srid` is true.
-    pub stored_srid: Option<i32>,
-    /// Type word with the SRID flag cleared (all other canonical bits kept).
-    pub canonical_type_without_srid: u32,
+/// Returns the output byte count and a write closure for stripping the SRID
+/// from a WKB/EWKB byte slice.
+///
+/// Calling the returned write closure with a mutable slice of exactly the
+/// returned length fills it with the SRID-stripped representation.
+///
+/// For canonical little-endian EWKB with Point, LineString, or Polygon type
+/// codes, the header is rewritten without parsing the geometry body.
+/// Collection types, big-endian inputs, and ISO-dimensional inputs fall back
+/// to a full WKB→WKT→WKB round-trip.
+///
+/// Prefer [`wkb_strip_srid`] when a `Vec<u8>` is convenient; use this
+/// function to write directly into a caller-supplied buffer (e.g. a Python
+/// `bytes` object via `PyBytes::new_with`).
+pub fn wkb_strip_srid_writer(wkb: &[u8]) -> Result<(usize, Box<dyn FnOnce(&mut [u8]) + '_>)> {
+    if let Some(header) = try_read_le_fast_path_header(wkb) {
+        if header.type_u32 & EWKB_SRID == 0 {
+            // No SRID — output is identical to input.
+            return Ok((wkb.len(), Box::new(|buf| buf.copy_from_slice(wkb))));
+        }
+        // Strip SRID: remove 4-byte SRID field, clear SRID flag.
+        let type_bytes = header.canonical_type_without_srid.to_le_bytes();
+        return Ok((
+            wkb.len() - 4,
+            Box::new(move |buf: &mut [u8]| {
+                buf[0] = 1;
+                buf[1..5].copy_from_slice(&type_bytes);
+                buf[5..].copy_from_slice(&wkb[9..]);
+            }),
+        ));
+    }
+    let (wkt, _) = wkb_to_wkt_split_srid(wkb)?;
+    let result = wkt_to_wkb::convert(&wkt)?;
+    let out_len = result.len();
+    Ok((out_len, Box::new(move |buf| buf.copy_from_slice(&result))))
 }
 
-/// Returns fast-path header info when `wkb` is canonical little-endian EWKB
-/// with a Point, LineString, or Polygon type code (base types 1–3).
+/// Returns the output byte count and a write closure for embedding or
+/// replacing the SRID in a WKB/EWKB byte slice.
 ///
-/// Returns `None` for big-endian, ISO-dimensional, collection, or
-/// unrecognised-flag inputs; the caller must fall back to a full parse.
-#[doc(hidden)]
-pub fn le_ewkb_fast_path(wkb: &[u8]) -> Option<LeFastPathInfo> {
-    let header = try_read_le_fast_path_header(wkb)?;
-    let has_srid = header.type_u32 & EWKB_SRID != 0;
-    let stored_srid = has_srid.then(|| i32::from_le_bytes(wkb[5..9].try_into().unwrap()));
-    Some(LeFastPathInfo {
-        has_srid,
-        stored_srid,
-        canonical_type_without_srid: header.canonical_type_without_srid,
-    })
+/// SRID values ≤ 0 are treated as unknown per the PostGIS convention
+/// (`SRID_IS_UNKNOWN(x) ((int)x<=0)`) and strip the SRID, identical to
+/// [`wkb_strip_srid_writer`].
+///
+/// Calling the returned write closure with a mutable slice of exactly the
+/// returned length fills it with the updated representation.
+///
+/// For canonical little-endian EWKB with Point, LineString, or Polygon type
+/// codes, the header is rewritten without parsing the geometry body.
+/// Collection types, big-endian inputs, and ISO-dimensional inputs fall back
+/// to a full WKB→WKT→WKB round-trip.
+///
+/// Prefer [`wkb_set_srid`] when a `Vec<u8>` is convenient; use this
+/// function to write directly into a caller-supplied buffer.
+pub fn wkb_set_srid_writer(
+    wkb: &[u8],
+    srid: i32,
+) -> Result<(usize, Box<dyn FnOnce(&mut [u8]) + '_>)> {
+    if srid <= 0 {
+        return wkb_strip_srid_writer(wkb);
+    }
+    if let Some(header) = try_read_le_fast_path_header(wkb) {
+        let type_with_srid = header.canonical_type_without_srid | EWKB_SRID;
+        let srid_bytes = srid.to_le_bytes();
+        if header.type_u32 & EWKB_SRID != 0 {
+            // SRID flag already set.
+            let stored = i32::from_le_bytes(wkb[5..9].try_into().unwrap());
+            if stored == srid {
+                // No-op — SRID already matches.
+                return Ok((wkb.len(), Box::new(|buf| buf.copy_from_slice(wkb))));
+            }
+            // Replace SRID in-place (same output length).
+            let type_bytes = type_with_srid.to_le_bytes();
+            return Ok((
+                wkb.len(),
+                Box::new(move |buf: &mut [u8]| {
+                    buf[0] = 1;
+                    buf[1..5].copy_from_slice(&type_bytes);
+                    buf[5..9].copy_from_slice(&srid_bytes);
+                    buf[9..].copy_from_slice(&wkb[9..]);
+                }),
+            ));
+        }
+        // No SRID yet — insert 4-byte SRID field, set SRID flag.
+        let type_bytes = type_with_srid.to_le_bytes();
+        return Ok((
+            wkb.len() + 4,
+            Box::new(move |buf: &mut [u8]| {
+                buf[0] = 1;
+                buf[1..5].copy_from_slice(&type_bytes);
+                buf[5..9].copy_from_slice(&srid_bytes);
+                buf[9..].copy_from_slice(&wkb[5..]);
+            }),
+        ));
+    }
+    let (wkt, _) = wkb_to_wkt_split_srid(wkb)?;
+    let result = wkt_to_wkb::convert_with_forced_srid(&wkt, srid)?;
+    let out_len = result.len();
+    Ok((out_len, Box::new(move |buf| buf.copy_from_slice(&result))))
 }
 
 /// Strip the SRID from a canonical little-endian EWKB byte slice without

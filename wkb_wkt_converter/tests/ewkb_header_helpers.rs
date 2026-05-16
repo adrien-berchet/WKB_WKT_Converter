@@ -1,7 +1,7 @@
-/// Tests for wkb_header_srid / wkb_strip_srid / wkb_set_srid.
+/// Tests for wkb_header_srid / wkb_strip_srid / wkb_set_srid / writers.
 use wkb_wkt_converter::{
-    le_ewkb_fast_path, wkb_header_srid, wkb_set_srid, wkb_strip_srid, wkb_to_wkt, wkt_to_wkb,
-    SridMode,
+    wkb_header_srid, wkb_set_srid, wkb_set_srid_writer, wkb_strip_srid, wkb_strip_srid_writer,
+    wkb_to_wkt, wkt_to_wkb, SridMode,
 };
 
 // ── shared test helpers ───────────────────────────────────────────────────────
@@ -308,38 +308,89 @@ fn header_srid_consistent_with_strip() {
     assert_eq!(wkb_header_srid(&stripped).unwrap(), None);
 }
 
-// ── le_ewkb_fast_path ────────────────────────────────────────────────────────
+// ── wkb_strip_srid_writer ────────────────────────────────────────────────────
+
+fn apply_writer<'a>(len: usize, write: Box<dyn FnOnce(&mut [u8]) + 'a>) -> Vec<u8> {
+    let mut buf = vec![0u8; len];
+    write(&mut buf);
+    buf
+}
 
 #[test]
-fn le_fast_path_with_srid_returns_some() {
+fn strip_writer_has_srid_fast_path() {
     let bytes = wkb("SRID=4326;POINT (1 2)");
-    let info = le_ewkb_fast_path(&bytes).unwrap();
-    assert!(info.has_srid);
-    assert_eq!(info.stored_srid, Some(4326));
-    assert_eq!(info.canonical_type_without_srid, 1); // POINT without SRID flag
+    let (len, write) = wkb_strip_srid_writer(&bytes).unwrap();
+    let out = apply_writer(len, write);
+    assert_eq!(wkt_of(&out), "POINT (1 2)");
 }
 
 #[test]
-fn le_fast_path_without_srid_returns_some() {
+fn strip_writer_no_srid_fast_path() {
     let bytes = wkb("POINT (1 2)");
-    let info = le_ewkb_fast_path(&bytes).unwrap();
-    assert!(!info.has_srid);
-    assert_eq!(info.stored_srid, None);
+    let (len, write) = wkb_strip_srid_writer(&bytes).unwrap();
+    let out = apply_writer(len, write);
+    assert_eq!(out, bytes);
 }
 
 #[test]
-fn le_fast_path_big_endian_returns_none() {
-    let bytes = from_hex(BE_POINT_HEX);
-    assert!(le_ewkb_fast_path(&bytes).is_none());
-}
-
-#[test]
-fn le_fast_path_multipolygon_returns_none() {
+fn strip_writer_multipolygon_fallback() {
     let bytes = wkb("SRID=4326;MULTIPOLYGON (((0 0, 1 0, 1 1, 0 0)))");
-    assert!(le_ewkb_fast_path(&bytes).is_none());
+    let (len, write) = wkb_strip_srid_writer(&bytes).unwrap();
+    let out = apply_writer(len, write);
+    assert_eq!(wkt_of(&out), "MULTIPOLYGON (((0 0, 1 0, 1 1, 0 0)))");
 }
 
 #[test]
-fn le_fast_path_iso_point_z_returns_none() {
-    assert!(le_ewkb_fast_path(&make_iso_point_z()).is_none());
+fn strip_writer_empty_errors() {
+    assert!(wkb_strip_srid_writer(&[]).is_err());
+}
+
+// ── wkb_set_srid_writer ──────────────────────────────────────────────────────
+
+#[test]
+fn set_writer_adds_srid_fast_path() {
+    let bytes = wkb("POINT (1 2)");
+    let (len, write) = wkb_set_srid_writer(&bytes, 4326).unwrap();
+    let out = apply_writer(len, write);
+    assert_eq!(wkt_of(&out), "SRID=4326;POINT (1 2)");
+}
+
+#[test]
+fn set_writer_replaces_srid_fast_path() {
+    let bytes = wkb("SRID=4326;POINT (1 2)");
+    let (len, write) = wkb_set_srid_writer(&bytes, 3857).unwrap();
+    let out = apply_writer(len, write);
+    assert_eq!(wkt_of(&out), "SRID=3857;POINT (1 2)");
+}
+
+#[test]
+fn set_writer_noop_when_srid_matches() {
+    let bytes = wkb("SRID=4326;POINT (1 2)");
+    let (len, write) = wkb_set_srid_writer(&bytes, 4326).unwrap();
+    let out = apply_writer(len, write);
+    assert_eq!(out, bytes);
+}
+
+#[test]
+fn set_writer_negative_srid_strips() {
+    let bytes = wkb("SRID=4326;POINT (1 2)");
+    let (len, write) = wkb_set_srid_writer(&bytes, -1).unwrap();
+    let out = apply_writer(len, write);
+    assert_eq!(wkt_of(&out), "POINT (1 2)");
+}
+
+#[test]
+fn set_writer_multipolygon_fallback() {
+    let bytes = wkb("MULTIPOLYGON (((0 0, 1 0, 1 1, 0 0)))");
+    let (len, write) = wkb_set_srid_writer(&bytes, 4326).unwrap();
+    let out = apply_writer(len, write);
+    assert_eq!(
+        wkt_of(&out),
+        "SRID=4326;MULTIPOLYGON (((0 0, 1 0, 1 1, 0 0)))"
+    );
+}
+
+#[test]
+fn set_writer_empty_errors() {
+    assert!(wkb_set_srid_writer(&[], 4326).is_err());
 }

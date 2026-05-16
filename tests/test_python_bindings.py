@@ -1271,6 +1271,13 @@ def test_to_ewkb_header_hex_replaces_existing_srid():
     assert m.hex_wkb_to_wkt(result) == "SRID=3857;POINT (1 2)"
 
 
+def test_to_ewkb_header_hex_false_strips_srid():
+    hex_wkb = m.wkt_to_hex_wkb("SRID=4326;POINT (1 2)")
+    result = m.to_ewkb_header(hex_wkb, False)
+    assert isinstance(result, str)
+    assert m.hex_wkb_to_wkt(result) == "POINT (1 2)"
+
+
 def test_to_ewkb_header_does_not_double_srid():
     # Replacing SRID must not embed a second SRID field.
     wkb = m.wkt_to_wkb("SRID=4326;POINT (1 2)")

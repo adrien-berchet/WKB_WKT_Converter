@@ -101,57 +101,6 @@ fn apply_header_srid_arg(wkb: &[u8], srid: ExplicitSridMode) -> Result<Vec<u8>, 
     }
 }
 
-// Write stripped EWKB directly into a PyBytes allocation (zero intermediate Vec).
-fn strip_to_pybytes<'py>(
-    py: Python<'py>,
-    wkb: &[u8],
-    info: &core::LeFastPathInfo,
-) -> PyResult<Py<PyAny>> {
-    if !info.has_srid {
-        // No SRID present — output is identical to input.
-        return Ok(PyBytes::new(py, wkb).into_any().unbind());
-    }
-    PyBytes::new_with(py, wkb.len() - 4, |buf| {
-        buf[0] = 1;
-        buf[1..5].copy_from_slice(&info.canonical_type_without_srid.to_le_bytes());
-        buf[5..].copy_from_slice(&wkb[9..]);
-        Ok(())
-    })
-    .map(|b| b.into_any().unbind())
-}
-
-// Write EWKB with a new SRID directly into a PyBytes allocation.
-fn set_to_pybytes<'py>(
-    py: Python<'py>,
-    wkb: &[u8],
-    info: &core::LeFastPathInfo,
-    srid_val: i32,
-) -> PyResult<Py<PyAny>> {
-    if info.stored_srid == Some(srid_val) {
-        // SRID already present and matches — output is identical to input.
-        return Ok(PyBytes::new(py, wkb).into_any().unbind());
-    }
-    // 0x2000_0000 = EWKB_SRID flag
-    let canonical_with_srid = info.canonical_type_without_srid | 0x2000_0000u32;
-    let out_len = if info.has_srid {
-        wkb.len()
-    } else {
-        wkb.len() + 4
-    };
-    PyBytes::new_with(py, out_len, |buf| {
-        buf[0] = 1;
-        buf[1..5].copy_from_slice(&canonical_with_srid.to_le_bytes());
-        buf[5..9].copy_from_slice(&srid_val.to_le_bytes());
-        if info.has_srid {
-            buf[9..].copy_from_slice(&wkb[9..]);
-        } else {
-            buf[9..].copy_from_slice(&wkb[5..]);
-        }
-        Ok(())
-    })
-    .map(|b| b.into_any().unbind())
-}
-
 fn with_wkb_buffer<R>(
     input: &Bound<'_, PyAny>,
     arg_name: &str,
@@ -419,11 +368,12 @@ fn to_wkb_no_srid_header(source: Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
         return Ok(PyString::new(py, &hex).into_any().unbind());
     }
     with_wkb_buffer(&source, "source", |wkb| {
-        if let Some(info) = core::le_ewkb_fast_path(wkb) {
-            return strip_to_pybytes(py, wkb, &info);
-        }
-        let result = core::wkb_strip_srid(wkb).map_err(to_py_err)?;
-        Ok(PyBytes::new(py, &result).into_any().unbind())
+        let (len, write) = core::wkb_strip_srid_writer(wkb).map_err(to_py_err)?;
+        PyBytes::new_with(py, len, |buf| {
+            write(buf);
+            Ok(())
+        })
+        .map(|b| b.into_any().unbind())
     })
 }
 
@@ -454,15 +404,16 @@ fn to_ewkb_header(source: Bound<'_, PyAny>, srid: Bound<'_, PyAny>) -> PyResult<
         return Ok(PyString::new(py, &hex).into_any().unbind());
     }
     with_wkb_buffer(&source, "source", |wkb| {
-        if let Some(info) = core::le_ewkb_fast_path(wkb) {
-            return match srid {
-                ExplicitSridMode::Strip => strip_to_pybytes(py, wkb, &info),
-                ExplicitSridMode::Set(n) if n <= 0 => strip_to_pybytes(py, wkb, &info),
-                ExplicitSridMode::Set(n) => set_to_pybytes(py, wkb, &info, n),
-            };
+        let (len, write) = match srid {
+            ExplicitSridMode::Strip => core::wkb_strip_srid_writer(wkb),
+            ExplicitSridMode::Set(n) => core::wkb_set_srid_writer(wkb, n),
         }
-        let result = apply_header_srid_arg(wkb, srid).map_err(to_py_err)?;
-        Ok(PyBytes::new(py, &result).into_any().unbind())
+        .map_err(to_py_err)?;
+        PyBytes::new_with(py, len, |buf| {
+            write(buf);
+            Ok(())
+        })
+        .map(|b| b.into_any().unbind())
     })
 }
 
