@@ -1112,7 +1112,8 @@ def test_wkb_header_srid_accepts_bytes_like(make_input):
 
 def test_wkb_header_srid_iso_point_z_no_srid():
     import struct
-    # ISO WKB type code 1001 (POINT Z, no SRID flag) — falls back to full parse
+    # ISO WKB type code 1001 (POINT Z) has no EWKB flag bits, so the fast path
+    # returns None immediately without a full parse.
     wkb = struct.pack("<BIddd", 1, 1001, 1.0, 2.0, 3.0)
     assert m.wkb_header_srid(wkb) is None
 

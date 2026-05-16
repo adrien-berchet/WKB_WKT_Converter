@@ -134,7 +134,10 @@ fn with_wkb_buffer<R>(
         // memory region containing exactly `len` one-byte elements. The slice
         // is borrowed only for the callback below, while `buffer` remains in
         // scope. Callers keep Python argument extraction outside this borrowed
-        // window, and the callback must not re-enter Python or release the GIL.
+        // window. The GIL is held throughout, so no concurrent modification is
+        // possible. Callbacks may create new Python objects (e.g. PyBytes) as
+        // long as they do not release the GIL or call Python code that could
+        // modify or invalidate the exported buffer.
         // For performance, writable exporters are borrowed too; the public API
         // documents that mutating the buffer during conversion is unsupported.
         unsafe { std::slice::from_raw_parts(buffer.buf_ptr().cast::<u8>(), len) }

@@ -107,14 +107,17 @@ pub enum SridMode {
 /// Reads the SRID embedded in the top-level EWKB header without converting
 /// the full geometry.
 ///
-/// For any byte order and any geometry type whose high type-word bits contain
-/// only the three canonical EWKB flags (Z, M, SRID), the SRID is read
-/// directly from the 9-byte header without parsing the geometry body.  This
-/// covers EWKB types 1–7, plain WKB, and ISO-dimensional WKB (type codes
-/// such as 1001 have no SRID flag set, so `None` is returned immediately
-/// without a full parse).  Inputs shorter than the 5-byte WKB header, inputs
-/// with unknown flag bits, and inputs with an invalid byte-order marker fall
-/// back to a full [`wkb_to_wkt_split_srid`] parse.
+/// For any byte order and any type word whose high bits contain only the
+/// three canonical EWKB flags (Z, M, SRID), the SRID is read directly from
+/// the 9-byte header without parsing the geometry body.  The base type code
+/// (low 16 bits) is **not** validated; the function returns an SRID even for
+/// unrecognised type codes as long as the upper 16 bits are only EWKB flags.
+/// ISO-dimensional type codes such as 1001 carry no EWKB flag bits, so
+/// `None` is returned immediately without a full parse.
+///
+/// Inputs shorter than the 5-byte WKB header, inputs with unknown flag bits
+/// in the high half of the type word, and inputs with an invalid byte-order
+/// marker fall back to a full [`wkb_to_wkt_split_srid`] parse.
 ///
 /// Returns `None` when no SRID is embedded in the top-level header, including
 /// raw EWKB SRID values that are non-positive.
@@ -700,11 +703,16 @@ pub struct WkbWriter<'a>(WkbWriterKind<'a>);
 impl WkbWriter<'_> {
     /// Fills `buf` with the SRID-modified WKB bytes.
     ///
-    /// `buf` must be exactly the length returned alongside this writer.
+    /// `buf` must be exactly the length returned alongside this writer;
+    /// passing a buffer of the wrong size panics.
     pub fn write_into(self, buf: &mut [u8]) {
         match self.0 {
-            WkbWriterKind::Copy(src) => buf.copy_from_slice(src),
+            WkbWriterKind::Copy(src) => {
+                debug_assert_eq!(buf.len(), src.len(), "WkbWriter::write_into: buffer length does not match the size returned by the writer");
+                buf.copy_from_slice(src);
+            }
             WkbWriterKind::Strip { type_bytes, body } => {
+                debug_assert_eq!(buf.len(), 5 + body.len(), "WkbWriter::write_into: buffer length does not match the size returned by the writer");
                 buf[0] = 1;
                 buf[1..5].copy_from_slice(&type_bytes);
                 buf[5..].copy_from_slice(body);
@@ -714,12 +722,16 @@ impl WkbWriter<'_> {
                 srid_bytes,
                 body,
             } => {
+                debug_assert_eq!(buf.len(), 9 + body.len(), "WkbWriter::write_into: buffer length does not match the size returned by the writer");
                 buf[0] = 1;
                 buf[1..5].copy_from_slice(&type_bytes);
                 buf[5..9].copy_from_slice(&srid_bytes);
                 buf[9..].copy_from_slice(body);
             }
-            WkbWriterKind::Parsed(data) => buf.copy_from_slice(&data),
+            WkbWriterKind::Parsed(data) => {
+                debug_assert_eq!(buf.len(), data.len(), "WkbWriter::write_into: buffer length does not match the size returned by the writer");
+                buf.copy_from_slice(&data);
+            }
         }
     }
 }
