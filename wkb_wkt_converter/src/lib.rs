@@ -131,12 +131,12 @@ pub fn wkb_header_srid(wkb: &[u8]) -> Result<Option<i32>> {
 /// Strips the top-level SRID flag and SRID field from a WKB/EWKB byte slice.
 ///
 /// For canonical little-endian EWKB with Point, LineString, or Polygon type
-/// codes, the header is rewritten without parsing the geometry body.
+/// codes, the header is rewritten without parsing the geometry body; inputs
+/// without an SRID on this fast path are returned byte-for-byte unchanged.
 /// Collection types, big-endian inputs, and ISO-dimensional inputs fall back
 /// to a full WKB→WKT→WKB round-trip which normalises the representation and
-/// preserves the invariant that only the top-level header may carry an SRID.
-///
-/// Returns the input unchanged when no SRID is present.
+/// preserves the invariant that only the top-level header may carry an SRID;
+/// these inputs may be rewritten even when no SRID was present.
 pub fn wkb_strip_srid(wkb: &[u8]) -> Result<Vec<u8>> {
     apply_srid_to_wkb(wkb, SridMode::Strip).map(|c| c.into_owned())
 }
