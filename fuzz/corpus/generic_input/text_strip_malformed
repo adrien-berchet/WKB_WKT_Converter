@@ -1,0 +1,5 @@
+kind=text
+srid=strip
+normalize=false
+
+SRID=4326;not really a geometry

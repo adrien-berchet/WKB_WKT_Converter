@@ -1,4 +1,6 @@
 /target/
+/fuzz/artifacts/
+/fuzz/target/
 .asv/
 __pycache__/
 *.pyc

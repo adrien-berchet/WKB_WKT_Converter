@@ -1,0 +1,51 @@
+name: Fuzz
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  cargo-fuzz:
+    name: cargo-fuzz (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - wkb_bytes
+          - wkt_text
+          - generic_input
+          - structured_roundtrip
+          - deep_nesting
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            fuzz -> fuzz/target
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      - name: Run bounded fuzz target
+        working-directory: fuzz
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            cargo fuzz run "${{ matrix.target }}" "corpus/${{ matrix.target }}" -- -max_total_time=300
+          else
+            cargo fuzz run "${{ matrix.target }}" "corpus/${{ matrix.target }}" -- -runs=1000
+          fi

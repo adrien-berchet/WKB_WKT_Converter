@@ -1,0 +1,49 @@
+[package]
+name = "wkb_wkt_converter-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+wkb_wkt_converter = { path = "../wkb_wkt_converter" }
+
+[[bin]]
+name = "wkb_bytes"
+path = "fuzz_targets/wkb_bytes.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "wkt_text"
+path = "fuzz_targets/wkt_text.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "generic_input"
+path = "fuzz_targets/generic_input.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "structured_roundtrip"
+path = "fuzz_targets/structured_roundtrip.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "deep_nesting"
+path = "fuzz_targets/deep_nesting.rs"
+test = false
+doc = false
+bench = false
