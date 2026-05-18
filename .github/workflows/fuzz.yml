@@ -39,7 +39,7 @@ jobs:
             fuzz -> fuzz/target
 
       - name: Install cargo-fuzz
-        run: cargo install cargo-fuzz --locked
+        run: cargo install cargo-fuzz --version 0.13.1
 
       - name: Run bounded fuzz target
         working-directory: fuzz
