@@ -15,23 +15,22 @@ cargo install cargo-fuzz
 From the repository root:
 
 ```sh
-cd fuzz
-mkdir -p corpus/wkb_bytes corpus/wkt_text corpus/generic_input corpus/structured_roundtrip corpus/deep_nesting
+mkdir -p fuzz/corpus/wkb_bytes fuzz/corpus/wkt_text fuzz/corpus/generic_input fuzz/corpus/structured_roundtrip fuzz/corpus/deep_nesting
 
 # Raw WKB/EWKB bytes and SRID helper fast paths.
-cargo fuzz run wkb_bytes corpus/wkb_bytes seeds/wkb_bytes
+cargo fuzz run --fuzz-dir fuzz wkb_bytes fuzz/corpus/wkb_bytes fuzz/seeds/wkb_bytes
 
 # Arbitrary UTF-8 text through WKT/EWKT and auto-detected hex-text entry points.
-cargo fuzz run wkt_text corpus/wkt_text seeds/wkt_text
+cargo fuzz run --fuzz-dir fuzz wkt_text fuzz/corpus/wkt_text fuzz/seeds/wkt_text
 
 # Generic Input::Text / Input::Wkb dispatch, SridMode, and normalize_wkt behavior.
-cargo fuzz run generic_input corpus/generic_input seeds/generic_input
+cargo fuzz run --fuzz-dir fuzz generic_input fuzz/corpus/generic_input fuzz/seeds/generic_input
 
 # Bounded valid-geometry generator for parser/encoder round-trips.
-cargo fuzz run structured_roundtrip corpus/structured_roundtrip seeds/structured_roundtrip
+cargo fuzz run --fuzz-dir fuzz structured_roundtrip fuzz/corpus/structured_roundtrip fuzz/seeds/structured_roundtrip
 
 # Near-limit and over-limit nested GeometryCollection inputs for depth guards.
-cargo fuzz run deep_nesting corpus/deep_nesting seeds/deep_nesting
+cargo fuzz run --fuzz-dir fuzz deep_nesting fuzz/corpus/deep_nesting fuzz/seeds/deep_nesting
 ```
 
 Useful maintenance commands:
@@ -56,6 +55,9 @@ When a fuzzing run discovers an input that should become part of the stable
 starting set, minimize it, give it a descriptive name, and copy only that input
 into `fuzz/seeds/<target>/`. Do not commit the generated hash-named files from
 `fuzz/corpus/`.
+
+`fuzz/Cargo.toml` is the source of truth for fuzz target names. Use
+`scripts/list_fuzz_targets.py` when scripts or automation need the target list.
 
 ## Coverage
 
@@ -88,13 +90,7 @@ The sections below show the manual commands that the script wraps.
 ```sh
 cd fuzz
 
-TARGETS=(
-  wkb_bytes
-  wkt_text
-  generic_input
-  structured_roundtrip
-  deep_nesting
-)
+mapfile -t TARGETS < <(python3 ../scripts/list_fuzz_targets.py)
 
 for target in "${TARGETS[@]}"; do
   mkdir -p "corpus/$target"

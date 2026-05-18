@@ -13,11 +13,12 @@ cargo fmt --all                  # apply formatting
 cargo fmt --all -- --check       # check only (CI mode)
 
 # Fuzzing (requires cargo-fuzz; fuzz crate is isolated under fuzz/)
-cd fuzz && cargo fuzz run wkb_bytes corpus/wkb_bytes
-cd fuzz && cargo fuzz run wkt_text corpus/wkt_text
-cd fuzz && cargo fuzz run generic_input corpus/generic_input
-cd fuzz && cargo fuzz run structured_roundtrip corpus/structured_roundtrip
-cd fuzz && cargo fuzz run deep_nesting corpus/deep_nesting
+mkdir -p fuzz/corpus/wkb_bytes fuzz/corpus/wkt_text fuzz/corpus/generic_input fuzz/corpus/structured_roundtrip fuzz/corpus/deep_nesting
+cargo fuzz run --fuzz-dir fuzz wkb_bytes fuzz/corpus/wkb_bytes fuzz/seeds/wkb_bytes
+cargo fuzz run --fuzz-dir fuzz wkt_text fuzz/corpus/wkt_text fuzz/seeds/wkt_text
+cargo fuzz run --fuzz-dir fuzz generic_input fuzz/corpus/generic_input fuzz/seeds/generic_input
+cargo fuzz run --fuzz-dir fuzz structured_roundtrip fuzz/corpus/structured_roundtrip fuzz/seeds/structured_roundtrip
+cargo fuzz run --fuzz-dir fuzz deep_nesting fuzz/corpus/deep_nesting fuzz/seeds/deep_nesting
 
 # Coverage (must reach 100% line coverage — CI enforces this)
 cargo llvm-cov --package wkb_wkt_converter --fail-under-lines 100

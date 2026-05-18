@@ -12,19 +12,30 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  fuzz-targets:
+    name: discover fuzz targets
+    runs-on: ubuntu-latest
+    outputs:
+      targets: ${{ steps.targets.outputs.targets }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: List fuzz targets
+        id: targets
+        run: echo "targets=$(python3 scripts/list_fuzz_targets.py --json)" >> "$GITHUB_OUTPUT"
+
   cargo-fuzz:
     name: cargo-fuzz (${{ matrix.target }})
+    needs: fuzz-targets
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        target:
-          - wkb_bytes
-          - wkt_text
-          - generic_input
-          - structured_roundtrip
-          - deep_nesting
+        target: ${{ fromJSON(needs.fuzz-targets.outputs.targets) }}
     steps:
       - uses: actions/checkout@v6
 
@@ -50,3 +61,12 @@ jobs:
           else
             cargo fuzz run "${{ matrix.target }}" "corpus/${{ matrix.target }}" "seeds/${{ matrix.target }}" -- -runs=1000
           fi
+
+      - name: Upload fuzz artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-artifacts-${{ matrix.target }}
+          path: fuzz/artifacts/${{ matrix.target }}/
+          if-no-files-found: ignore
+          retention-days: 7

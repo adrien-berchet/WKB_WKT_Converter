@@ -40,14 +40,7 @@ done
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 fuzz_dir="$repo_root/fuzz"
-
-targets=(
-  wkb_bytes
-  wkt_text
-  generic_input
-  structured_roundtrip
-  deep_nesting
-)
+mapfile -t targets < <(python3 "$repo_root/scripts/list_fuzz_targets.py")
 
 if ! command -v rustup >/dev/null 2>&1; then
   echo "rustup is required so the script can locate nightly LLVM tools" >&2
