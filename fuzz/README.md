@@ -16,21 +16,22 @@ From the repository root:
 
 ```sh
 cd fuzz
+mkdir -p corpus/wkb_bytes corpus/wkt_text corpus/generic_input corpus/structured_roundtrip corpus/deep_nesting
 
 # Raw WKB/EWKB bytes and SRID helper fast paths.
-cargo fuzz run wkb_bytes corpus/wkb_bytes
+cargo fuzz run wkb_bytes corpus/wkb_bytes seeds/wkb_bytes
 
 # Arbitrary UTF-8 text through WKT/EWKT and auto-detected hex-text entry points.
-cargo fuzz run wkt_text corpus/wkt_text
+cargo fuzz run wkt_text corpus/wkt_text seeds/wkt_text
 
 # Generic Input::Text / Input::Wkb dispatch, SridMode, and normalize_wkt behavior.
-cargo fuzz run generic_input corpus/generic_input
+cargo fuzz run generic_input corpus/generic_input seeds/generic_input
 
 # Bounded valid-geometry generator for parser/encoder round-trips.
-cargo fuzz run structured_roundtrip corpus/structured_roundtrip
+cargo fuzz run structured_roundtrip corpus/structured_roundtrip seeds/structured_roundtrip
 
 # Near-limit and over-limit nested GeometryCollection inputs for depth guards.
-cargo fuzz run deep_nesting corpus/deep_nesting
+cargo fuzz run deep_nesting corpus/deep_nesting seeds/deep_nesting
 ```
 
 Useful maintenance commands:
@@ -41,9 +42,20 @@ cd fuzz
 # Minimize a crashing input.
 cargo fuzz tmin wkb_bytes artifacts/wkb_bytes/crash-...
 
-# Shrink the checked-in corpus to the smallest useful set.
+# Shrink the local generated corpus to the smallest useful set.
 cargo fuzz cmin wkt_text corpus/wkt_text
 ```
+
+## Seeds and generated corpus
+
+`fuzz/seeds/<target>/` contains small, reviewable seed inputs that are committed
+to git. `fuzz/corpus/<target>/` is the mutable libFuzzer corpus; it is ignored by
+git and can grow during local runs or CI.
+
+When a fuzzing run discovers an input that should become part of the stable
+starting set, minimize it, give it a descriptive name, and copy only that input
+into `fuzz/seeds/<target>/`. Do not commit the generated hash-named files from
+`fuzz/corpus/`.
 
 ## Coverage
 
@@ -85,7 +97,8 @@ TARGETS=(
 )
 
 for target in "${TARGETS[@]}"; do
-  cargo +nightly fuzz coverage "$target" "corpus/$target"
+  mkdir -p "corpus/$target"
+  cargo +nightly fuzz coverage "$target" "corpus/$target" "seeds/$target"
 done
 ```
 
@@ -174,8 +187,8 @@ targeted seeds or a new fuzz target for that behavior.
 - Harnesses accept legitimate `Err` results and only assert documented invariants on
   successful conversions.
 - Inputs are size-capped inside the harnesses to avoid fuzzer-driven allocation spikes.
-- `wkb_bytes` and `generic_input` accept checked-in corpus seeds with a `HEX:` prefix so
-  binary fixtures can stay reviewable as ASCII text.
+- `wkb_bytes` and `generic_input` accept seeds with a `HEX:` prefix so binary
+  fixtures can stay reviewable as ASCII text.
 - `deep_nesting` constructs nested `GEOMETRYCOLLECTION` WKT and WKB up to and
   just past the parser depth limit.
 - The GitHub Actions fuzz workflow runs bounded smoke campaigns on pull requests

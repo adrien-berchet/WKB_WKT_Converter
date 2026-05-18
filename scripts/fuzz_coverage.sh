@@ -76,7 +76,8 @@ mkdir -p coverage
 if $generate; then
   for target in "${targets[@]}"; do
     echo "==> Generating coverage for $target"
-    cargo +nightly fuzz coverage "$target" "corpus/$target"
+    mkdir -p "corpus/$target"
+    cargo +nightly fuzz coverage "$target" "corpus/$target" "seeds/$target"
   done
 fi
 
