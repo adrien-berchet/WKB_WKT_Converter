@@ -183,6 +183,15 @@ pub enum Error {
 }
 ```
 
+### Fuzzing
+
+`cargo-fuzz` support for the core crate lives in [fuzz/README.md](fuzz/README.md).
+It includes five targets covering raw WKB bytes, arbitrary UTF-8 text, generic
+`Input` dispatch behavior, bounded valid-geometry round-trips, plus a
+depth-boundary target for nested `GEOMETRYCOLLECTION` inputs. The GitHub Actions
+fuzz workflow is a smoke/regression check; it complements, but does not replace,
+longer local or continuous fuzzing campaigns.
+
 ---
 
 ## Python API

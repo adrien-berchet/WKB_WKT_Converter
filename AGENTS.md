@@ -12,6 +12,14 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo fmt --all                  # apply formatting
 cargo fmt --all -- --check       # check only (CI mode)
 
+# Fuzzing (requires cargo-fuzz; fuzz crate is isolated under fuzz/)
+mkdir -p fuzz/corpus/wkb_bytes fuzz/corpus/wkt_text fuzz/corpus/generic_input fuzz/corpus/structured_roundtrip fuzz/corpus/deep_nesting
+cargo fuzz run --fuzz-dir fuzz wkb_bytes fuzz/corpus/wkb_bytes fuzz/seeds/wkb_bytes
+cargo fuzz run --fuzz-dir fuzz wkt_text fuzz/corpus/wkt_text fuzz/seeds/wkt_text
+cargo fuzz run --fuzz-dir fuzz generic_input fuzz/corpus/generic_input fuzz/seeds/generic_input
+cargo fuzz run --fuzz-dir fuzz structured_roundtrip fuzz/corpus/structured_roundtrip fuzz/seeds/structured_roundtrip
+cargo fuzz run --fuzz-dir fuzz deep_nesting fuzz/corpus/deep_nesting fuzz/seeds/deep_nesting
+
 # Coverage (must reach 100% line coverage — CI enforces this)
 cargo llvm-cov --package wkb_wkt_converter --fail-under-lines 100
 

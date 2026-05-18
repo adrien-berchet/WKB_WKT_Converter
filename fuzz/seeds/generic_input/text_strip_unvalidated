@@ -1,0 +1,5 @@
+kind=text
+srid=strip
+normalize=false
+
+SRID=4326;NOT_A_WKT_BUT_GENERIC_TEXT_CAN_PASS_THROUGH

@@ -1,0 +1,5 @@
+kind=text
+srid=auto
+normalize=true
+
+SRID=4326;POINT Z (1 2 3)
