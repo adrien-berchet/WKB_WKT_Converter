@@ -1,5 +1,0 @@
-kind=text
-srid=strip
-normalize=false
-
-SRID=4326;POINT (1 2)
