@@ -2,7 +2,9 @@
 name = "wkb_wkt_converter_py"
 version.workspace = true
 edition.workspace = true
+authors.workspace = true
 license.workspace = true
+homepage.workspace = true
 repository.workspace = true
 description = "Python bindings for wkb_wkt_converter"
 publish = false

@@ -2,9 +2,12 @@
 name = "wkb_wkt_converter"
 version.workspace = true
 edition.workspace = true
+authors.workspace = true
 license.workspace = true
+homepage.workspace = true
 repository.workspace = true
 description = "High-performance streaming converter between WKT and WKB geometry formats"
+documentation = "https://docs.rs/wkb_wkt_converter"
 readme = "../README.md"
 keywords = ["wkb", "wkt", "ewkb", "ewkt", "gis"]
 categories = ["science::geo", "parser-implementations", "encoding"]
