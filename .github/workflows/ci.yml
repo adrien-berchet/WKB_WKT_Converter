@@ -99,6 +99,40 @@ jobs:
       - name: Run Python tests
         run: pytest
 
+  python-pypy:
+    name: PyPy wheel (ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Set up PyPy
+        uses: actions/setup-python@v6
+        with:
+          python-version: "pypy3.11"
+
+      - name: Install maturin
+        run: python -m pip install maturin
+
+      - name: Build and install PyPy wheel
+        run: |
+          maturin build --release -i python
+          python -m pip install --force-reinstall target/wheels/*.whl
+
+      - name: Smoke test PyPy wheel
+        run: |
+          python - <<'PY'
+          import wkb_wkt_converter
+
+          wkb = wkb_wkt_converter.wkt_to_wkb("POINT (1 2)")
+          assert wkb_wkt_converter.wkb_to_wkt(wkb) == "POINT (1 2)"
+          PY
+
   coverage-python:
     name: Coverage (Python bindings)
     runs-on: ubuntu-latest
