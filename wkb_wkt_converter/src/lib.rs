@@ -122,7 +122,22 @@ pub enum SridMode {
 /// Returns `None` when no SRID is embedded in the top-level header, including
 /// raw EWKB SRID values that are non-positive.
 pub fn wkb_header_srid(wkb: &[u8]) -> Result<Option<i32>> {
-    match try_read_ewkb_srid_fast(wkb) {
+    wkb_header_srid_impl(wkb, false)
+}
+
+/// Reads the SRID embedded in the top-level EWKB header without converting
+/// the full geometry, preserving raw unknown SRID values.
+///
+/// This behaves like [`wkb_header_srid`] except that a present EWKB SRID flag
+/// with raw SRID `0` returns `Some(0)` and raw SRID `0xffffffff` returns
+/// `Some(-1)`, following the crate's signed `i32` SRID model. A header with no
+/// EWKB SRID flag still returns `None`.
+pub fn wkb_header_srid_including_unknown(wkb: &[u8]) -> Result<Option<i32>> {
+    wkb_header_srid_impl(wkb, true)
+}
+
+fn wkb_header_srid_impl(wkb: &[u8], include_unknown: bool) -> Result<Option<i32>> {
+    match try_read_ewkb_srid_fast(wkb, include_unknown) {
         Some(r) => r,
         None => wkb_to_wkt_split_srid(wkb).map(|(_, srid)| srid),
     }
@@ -484,7 +499,7 @@ fn strip_ewkt_prefix(wkt: &str) -> &str {
 ///
 /// Returns `Some(Err(...))` when the SRID flag is set but the slice is too
 /// short to contain the 4-byte SRID field.
-fn try_read_ewkb_srid_fast(wkb: &[u8]) -> Option<Result<Option<i32>>> {
+fn try_read_ewkb_srid_fast(wkb: &[u8], include_unknown: bool) -> Option<Result<Option<i32>>> {
     if wkb.len() < 5 {
         return None;
     }
@@ -519,7 +534,7 @@ fn try_read_ewkb_srid_fast(wkb: &[u8]) -> Option<Result<Option<i32>>> {
     } else {
         i32::from_be_bytes(srid_bytes)
     };
-    Some(Ok((srid > 0).then_some(srid)))
+    Some(Ok((include_unknown || srid > 0).then_some(srid)))
 }
 
 /// Encode bytes as an uppercase hexadecimal string using a lookup table.

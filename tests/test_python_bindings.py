@@ -1053,6 +1053,8 @@ _BE_SRID3_POINT_HEX = "0020000001000000033FF00000000000004000000000000000"
 _BE_SRID4_POINT_HEX = "0020000001000000043FF00000000000004000000000000000"
 # Big-endian plain WKB for POINT (1 2)
 _BE_POINT_HEX = "00000000013FF00000000000004000000000000000"
+_LE_SRID_ZERO_POINT_HEX = "010100002000000000000000000000F03F0000000000000040"
+_LE_SRID_MINUS_ONE_POINT_HEX = "0101000020FFFFFFFF000000000000F03F0000000000000040"
 
 
 def test_wkb_header_srid_returns_int_from_binary():
@@ -1060,14 +1062,45 @@ def test_wkb_header_srid_returns_int_from_binary():
     assert m.wkb_header_srid(wkb) == 4326
 
 
+def test_wkb_header_srid_include_unknown_positive_srid_still_returns_int():
+    wkb = m.wkt_to_wkb("SRID=4326;POINT (1 2)")
+    assert m.wkb_header_srid(wkb, include_unknown=True) == 4326
+
+
 def test_wkb_header_srid_returns_none_when_no_srid():
     wkb = m.wkt_to_wkb("POINT (1 2)")
     assert m.wkb_header_srid(wkb) is None
 
 
+def test_wkb_header_srid_include_unknown_still_returns_none_when_no_srid():
+    wkb = m.wkt_to_wkb("POINT (1 2)")
+    assert m.wkb_header_srid(wkb, include_unknown=True) is None
+
+
+def test_wkb_header_srid_default_treats_raw_zero_as_unknown():
+    wkb = bytes.fromhex(_LE_SRID_ZERO_POINT_HEX)
+    assert m.wkb_header_srid(wkb) is None
+    assert m.wkb_header_srid(wkb, include_unknown=False) is None
+
+
+def test_wkb_header_srid_include_unknown_returns_raw_zero():
+    wkb = bytes.fromhex(_LE_SRID_ZERO_POINT_HEX)
+    assert m.wkb_header_srid(wkb, include_unknown=True) == 0
+
+
+def test_wkb_header_srid_include_unknown_returns_signed_negative_one():
+    wkb = bytes.fromhex(_LE_SRID_MINUS_ONE_POINT_HEX)
+    assert m.wkb_header_srid(wkb) is None
+    assert m.wkb_header_srid(wkb, include_unknown=True) == -1
+
+
 def test_wkb_header_srid_accepts_hex_string():
     hex_wkb = m.wkt_to_hex_wkb("SRID=4326;POINT (1 2)")
     assert m.wkb_header_srid(hex_wkb) == 4326
+
+
+def test_wkb_header_srid_include_unknown_accepts_hex_string():
+    assert m.wkb_header_srid(_LE_SRID_MINUS_ONE_POINT_HEX, include_unknown=True) == -1
 
 
 def test_wkb_header_srid_hex_string_returns_none_when_no_srid():
@@ -1138,6 +1171,12 @@ def test_wkb_header_srid_invalid_hex_string_errors():
 def test_wkb_header_srid_rejects_non_buffer_input():
     with pytest.raises(BufferError, match="contiguous one-byte buffer"):
         m.wkb_header_srid(123)
+
+
+def test_wkb_header_srid_include_unknown_is_keyword_only():
+    wkb = m.wkt_to_wkb("SRID=4326;POINT (1 2)")
+    with pytest.raises(TypeError):
+        m.wkb_header_srid(wkb, True)
 
 
 # ── to_wkb_no_srid_header ────────────────────────────────────────────────────
