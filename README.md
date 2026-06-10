@@ -47,19 +47,23 @@ wkb_wkt_converter = { path = "wkb_wkt_converter" }
 pub fn wkb_to_wkt(wkb: &[u8], srid: SridMode) -> Result<String>
 
 // WKB/EWKB → WKT, SRID returned separately (not in the string)
-pub fn wkb_to_wkt_split_srid(wkb: &[u8]) -> Result<(String, Option<u32>)>
+pub fn wkb_to_wkt_split_srid(wkb: &[u8]) -> Result<(String, Option<i32>)>
 
 // WKT/EWKT → EWKB bytes, with SRID output control
 pub fn wkt_to_wkb(wkt: &str, srid: SridMode) -> Result<Vec<u8>>
 
 // WKT/EWKT → EWKB bytes, SRID returned separately (not in bytes)
-pub fn wkt_to_wkb_split_srid(wkt: &str) -> Result<(Vec<u8>, Option<u32>)>
+pub fn wkt_to_wkb_split_srid(wkt: &str) -> Result<(Vec<u8>, Option<i32>)>
 
 // WKT/EWKT → uppercase hex-encoded EWKB string, with SRID output control
 pub fn wkt_to_hex_wkb(wkt: &str, srid: SridMode) -> Result<String>
 
 // Hex-encoded WKB/EWKB → WKT/EWKT string, with SRID output control
 pub fn hex_wkb_to_wkt(hex: &str, srid: SridMode) -> Result<String>
+
+// Read only the top-level EWKB SRID header, without converting the geometry
+pub fn wkb_header_srid(wkb: &[u8]) -> Result<Option<i32>>
+pub fn wkb_header_srid_including_unknown(wkb: &[u8]) -> Result<Option<i32>>
 ```
 
 #### Generic converters
@@ -88,6 +92,12 @@ pub fn to_hex_wkb(input: Input<'_>, srid: SridMode) -> Result<String>
 | `SridMode::Auto` | Mirror the input — SRID kept if present, absent if not |
 | `SridMode::Strip` | Always strip the SRID from the output |
 | `SridMode::Set(n)` | Always embed SRID `n`, overriding whatever the input contains |
+
+`wkb_header_srid` returns `None` for headers without an EWKB SRID flag and for
+raw non-positive SRID values. Use `wkb_header_srid_including_unknown` to
+distinguish an EWKB SRID flag carrying an unknown raw value: raw `0` returns
+`Some(0)`, and raw `0xffffffff` returns `Some(-1)` under the signed i32 SRID
+model.
 
 Validation notes:
 
@@ -218,6 +228,7 @@ from wkb_wkt_converter import (
     wkt_to_wkb_split_srid,
     wkt_to_hex_wkb,
     hex_wkb_to_wkt,
+    wkb_header_srid,
     # generic converters
     to_wkb,
     to_wkt,
@@ -233,6 +244,7 @@ from wkb_wkt_converter import (
 | `wkt_to_wkb_split_srid(wkt)` | `str` | `(bytes, int \| None)` |
 | `wkt_to_hex_wkb(wkt, srid=None)` | `str` | `str` |
 | `hex_wkb_to_wkt(hex_wkb, srid=None)` | `str` | `str` |
+| `wkb_header_srid(source, *, include_unknown=False)` | WKB/EWKB bytes-like or hex string | `int \| None` |
 
 WKB arguments in the Python API accept `bytes`, `bytearray`, `memoryview`, and
 other C-contiguous one-byte buffer objects. They are always treated as raw
@@ -280,6 +292,11 @@ through as invalid output. `to_wkb(source, srid=None)` returns decoded/raw
 bytes without WKB structure validation, and
 `to_hex_wkb(source, srid=None)` validates and uppercases hex text or hex-encodes
 bytes-like input without WKB structure validation.
+
+`wkb_header_srid` inspects only the top-level EWKB header. By default it returns
+`None` for headers without an SRID flag and for raw non-positive SRID values.
+With `include_unknown=True`, a present SRID flag carrying raw `0` returns `0`,
+and raw `0xffffffff` returns `-1` under the signed i32 SRID model.
 
 `to_wkt` accepts a `normalize_wkt` keyword argument (default `False`).
 When `True`, WKT input is normalised (canonical casing, spacing, coordinate

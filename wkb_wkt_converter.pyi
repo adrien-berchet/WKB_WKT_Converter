@@ -41,7 +41,11 @@ def to_wkt(
 def to_hex_wkb(source: _Input, srid: _SridArg = None) -> str: ...
 
 
-def wkb_header_srid(source: _Input) -> Optional[int]: ...
+def wkb_header_srid(
+    source: _Input,
+    *,
+    include_unknown: bool = False,
+) -> Optional[int]: ...
 
 
 @overload

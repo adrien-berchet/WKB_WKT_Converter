@@ -1,7 +1,7 @@
 /// Tests for wkb_header_srid / wkb_strip_srid / wkb_set_srid / writers.
 use wkb_wkt_converter::{
-    wkb_header_srid, wkb_set_srid, wkb_set_srid_writer, wkb_strip_srid, wkb_strip_srid_writer,
-    wkb_to_wkt, wkt_to_wkb, SridMode, WkbWriter,
+    wkb_header_srid, wkb_header_srid_including_unknown, wkb_set_srid, wkb_set_srid_writer,
+    wkb_strip_srid, wkb_strip_srid_writer, wkb_to_wkt, wkt_to_wkb, SridMode, WkbWriter,
 };
 
 // ── shared test helpers ───────────────────────────────────────────────────────
@@ -52,6 +52,15 @@ fn make_iso_point_z() -> Vec<u8> {
 fn header_srid_le_ewkb_with_srid() {
     let bytes = wkb("SRID=4326;POINT (1 2)");
     assert_eq!(wkb_header_srid(&bytes).unwrap(), Some(4326));
+}
+
+#[test]
+fn header_srid_including_unknown_positive_srid_still_returns_srid() {
+    let bytes = wkb("SRID=4326;POINT (1 2)");
+    assert_eq!(
+        wkb_header_srid_including_unknown(&bytes).unwrap(),
+        Some(4326)
+    );
 }
 
 #[test]
@@ -120,9 +129,27 @@ fn header_srid_raw_zero_is_treated_as_unknown() {
 }
 
 #[test]
+fn header_srid_including_unknown_raw_zero_preserves_zero() {
+    let bytes = from_hex(LE_SRID_ZERO_POINT_HEX);
+    assert_eq!(wkb_header_srid_including_unknown(&bytes).unwrap(), Some(0));
+}
+
+#[test]
 fn header_srid_raw_negative_one_is_treated_as_unknown() {
     let bytes = from_hex(LE_SRID_MINUS_ONE_POINT_HEX);
     assert_eq!(wkb_header_srid(&bytes).unwrap(), None);
+}
+
+#[test]
+fn header_srid_including_unknown_raw_negative_one_preserves_signed_value() {
+    let bytes = from_hex(LE_SRID_MINUS_ONE_POINT_HEX);
+    assert_eq!(wkb_header_srid_including_unknown(&bytes).unwrap(), Some(-1));
+}
+
+#[test]
+fn header_srid_including_unknown_without_srid_still_returns_none() {
+    let bytes = wkb("POINT (1 2)");
+    assert_eq!(wkb_header_srid_including_unknown(&bytes).unwrap(), None);
 }
 
 #[test]
@@ -131,6 +158,12 @@ fn header_srid_truncated_srid_field_errors() {
     // Type word 0x20000003 = Polygon | EWKB_SRID in LE.
     let bytes = from_hex("0103000020");
     assert!(wkb_header_srid(&bytes).is_err());
+}
+
+#[test]
+fn header_srid_including_unknown_truncated_srid_field_errors() {
+    let bytes = from_hex("0103000020");
+    assert!(wkb_header_srid_including_unknown(&bytes).is_err());
 }
 
 #[test]

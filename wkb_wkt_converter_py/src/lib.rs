@@ -340,14 +340,27 @@ fn to_wkt(
 /// returned without error; attempting to convert such bytes to WKT will still
 /// fail.  This is intentional — extracting the SRID from a partially valid
 /// header can be useful even when the full geometry is unrecognised.
-#[pyfunction]
-fn wkb_header_srid(source: Bound<'_, PyAny>) -> PyResult<Option<i32>> {
+///
+/// Pass ``include_unknown=True`` to distinguish an EWKB header that has the
+/// SRID flag set with an unknown/non-positive raw SRID from a header with no
+/// SRID flag.  With this opt-in mode, raw SRID ``0`` returns ``0`` and raw
+/// ``0xffffffff`` returns ``-1`` according to the signed i32 SRID model.
+#[pyfunction(signature = (source, *, include_unknown=false))]
+fn wkb_header_srid(source: Bound<'_, PyAny>, include_unknown: bool) -> PyResult<Option<i32>> {
     if let Ok(text) = source.cast::<PyString>() {
         let bytes = core::decode_hex(text.to_str()?).map_err(to_py_err)?;
-        return core::wkb_header_srid(&bytes).map_err(to_py_err);
+        return if include_unknown {
+            core::wkb_header_srid_including_unknown(&bytes).map_err(to_py_err)
+        } else {
+            core::wkb_header_srid(&bytes).map_err(to_py_err)
+        };
     }
     with_wkb_buffer(&source, "source", |wkb| {
-        core::wkb_header_srid(wkb).map_err(to_py_err)
+        if include_unknown {
+            core::wkb_header_srid_including_unknown(wkb).map_err(to_py_err)
+        } else {
+            core::wkb_header_srid(wkb).map_err(to_py_err)
+        }
     })
 }
 
