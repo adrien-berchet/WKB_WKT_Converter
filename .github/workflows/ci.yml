@@ -90,7 +90,7 @@ jobs:
         run: cargo llvm-cov --package wkb_wkt_converter --lcov --output-path lcov.info --fail-under-lines 100
 
       - name: Upload to Codecov
-        if: ${{ secrets.CODECOV_TOKEN != '' }}
+        if: ${{ env.CODECOV_TOKEN != '' }}
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6
         with:
           files: lcov.info
